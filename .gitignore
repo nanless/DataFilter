@@ -1,0 +1,9 @@
+output
+outputs
+*.log
+downloaded_models
+downloaded_checkpoints
+eval_data
+.ipynb_checkpoints
+*pyc
+effb2.pt

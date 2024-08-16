@@ -42,74 +42,78 @@ def process_rows(queue, device, original_folder, model_name, target_folder, batc
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True, cache_dir="downloaded_models", padding_side='left')
     
     while True:
-        rows = queue.get()
-        if rows is None:
-            queue.put(None)  # Signal the next process
-            break
+        try:
+            rows = queue.get()
+            if rows is None:
+                queue.put(None)  # Signal the next process
+                break
 
-        audio_class_dict = {}
-        prompts = []
-        valid_rows = []
+            audio_class_dict = {}
+            prompts = []
+            valid_rows = []
 
-        for row in rows:
-            audio_file_path = os.path.join(original_folder, row[0] + ".wav")
-            if os.path.exists(audio_file_path):
-                real_classs = []
-                discriptions = row[1].split(",")
-                for description in discriptions:
-                    real_classs.append(description.strip())
-                audio_class_dict[row[0]] = real_classs
-                print(row[0], real_classs)
+            for row in rows:
+                audio_file_path = os.path.join(original_folder, row[0] + ".wav")
+                if os.path.exists(audio_file_path):
+                    real_classs = []
+                    discriptions = row[1].split(",")
+                    for description in discriptions:
+                        real_classs.append(description.strip())
+                    audio_class_dict[row[0]] = real_classs
+                    print(row[0], real_classs)
 
-                prompt = "The classes of one audio clip assigned by human annotators is " + ",".join(real_classs) + ". According to the audio clip classes, is there any human voice in the clip? Answer yes or no only."
-                messages = [
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": prompt}
-                ]
-                text = tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True
-                )
-                prompts.append(text)
-                valid_rows.append(row)
+                    prompt = "The classes of one audio clip assigned by human annotators is " + ",".join(real_classs) + ". According to the audio clip classes, is there definitely human voice in the clip for 100 percent sure? Answer yes or no only."
+                    messages = [
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": prompt}
+                    ]
+                    text = tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True
+                    )
+                    prompts.append(text)
+                    valid_rows.append(row)
 
-        if not prompts:
+            if not prompts:
+                continue
+
+            model_inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True).to(device)
+
+            generated_ids = model.generate(
+                **model_inputs,
+                max_new_tokens=20,
+                early_stopping=True
+            )
+            generated_ids = [
+                output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
+            ]
+
+            responses = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+
+            for row, response in zip(valid_rows, responses):
+                response = response.lower().replace(".", "").replace(",", "").replace("?", "").replace("!", "")
+                print(row[0], response)
+
+                if response == "no":
+                    real_classs = audio_class_dict[row[0]]
+                    selected_class = random.choice(real_classs)
+                    print("Randomly selected class:", selected_class)
+
+                    response = selected_class.lower()
+
+                    print("Target folder:", os.path.join(target_folder, response))
+                    
+                    if not os.path.exists(os.path.join(target_folder, response)):
+                        os.makedirs(os.path.join(target_folder, response))
+                    
+                    shutil.copy(audio_file_path, os.path.join(target_folder, response))
+
+            # 清空缓存以防止显存溢出
+            torch.cuda.empty_cache()
+        except Exception as e:
+            print(e)
             continue
-
-        model_inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True).to(device)
-
-        generated_ids = model.generate(
-            **model_inputs,
-            max_new_tokens=20,
-            early_stopping=True
-        )
-        generated_ids = [
-            output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
-        ]
-
-        responses = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
-
-        for row, response in zip(valid_rows, responses):
-            response = response.lower().replace(".", "").replace(",", "").replace("?", "").replace("!", "")
-            print(row[0], response)
-
-            if response == "no":
-                real_classs = audio_class_dict[row[0]]
-                selected_class = random.choice(real_classs)
-                print("Randomly selected class:", selected_class)
-
-                response = selected_class.lower()
-
-                print("Target folder:", os.path.join(target_folder, response))
-                
-                if not os.path.exists(os.path.join(target_folder, response)):
-                    os.makedirs(os.path.join(target_folder, response))
-                
-                shutil.copy(audio_file_path, os.path.join(target_folder, response))
-
-        # 清空缓存以防止显存溢出
-        torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

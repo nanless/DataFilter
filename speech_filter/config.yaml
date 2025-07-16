@@ -1,0 +1,88 @@
+# 语音筛选Pipeline默认配置文件
+# 可以通过命令行参数覆盖这些默认值
+
+# VAD检测配置
+vad:
+  threshold: 0.5                    # TEN VAD阈值 (0.0-1.0)
+  hop_size: 256                     # 跳跃大小（样本数，256=16ms at 16kHz）
+  min_speech_duration: 0.5          # 最短语音时长（秒）
+  max_speech_duration: 30.0         # 最长语音时长（秒）
+  min_silence_duration: 0.1         # 最小静音持续时间（秒）
+
+# 语音识别配置
+asr:
+  model_name: "large-v3"            # Whisper模型大小
+  language: null                    # 目标语言（null表示自动检测）
+  batch_size: 16                    # 批处理大小
+  device: "cuda"                    # 设备类型
+  model_cache_dir: "/root/data/pretrained_models"  # 模型缓存目录
+
+# 音质评估配置
+audio_quality:
+  distil_mos_threshold: 3.0         # DistilMOS阈值 (1.0-5.0)
+  dnsmos_threshold: 3.0             # DNSMOS阈值 (1.0-5.0)
+  dnsmospro_threshold: 3.0          # DNSMOSPro阈值 (1.0-5.0)
+  use_distil_mos: true              # 是否使用DistilMOS
+  use_dnsmos: true                  # 是否使用DNSMOS
+  use_dnsmospro: true               # 是否使用DNSMOSPro
+
+# 处理配置
+processing:
+  supported_formats: [".wav", ".mp3", ".flac", ".m4a"]  # 支持的音频格式
+  max_duration: 30.0                # 最大音频时长（秒）
+  min_duration: 0.5                 # 最小音频时长（秒）
+  sample_rate: 16000                # 重采样率
+
+# 输出配置
+output:
+  output_dir: "filtered_audio"      # 默认输出目录
+  results_file: "processing_results.json"  # 结果文件名
+  log_file: "pipeline.log"          # 日志文件名
+
+# 并行处理配置
+parallel:
+  num_workers: 4                    # 并行工作线程数
+  batch_size: 8                     # 批处理大小
+
+# 日志配置
+logging:
+  level: "INFO"                     # 日志级别 (DEBUG/INFO/WARNING/ERROR)
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# 特定语言配置示例
+language_configs:
+  japanese:
+    asr:
+      language: "ja"
+      model_name: "large-v3"
+      model_cache_dir: "/root/data/pretrained_models"
+    vad:
+      threshold: 0.5                # 日语可能需要更敏感的阈值
+    audio_quality:
+      distil_mos_threshold: 3.0     # 日语音质要求可能不同
+      dnsmos_threshold: 3.0
+      dnsmospro_threshold: 3.0
+  
+  chinese:
+    asr:
+      language: "zh"
+      model_name: "large-v3"
+      model_cache_dir: "/root/data/pretrained_models"
+    vad:
+      threshold: 0.5
+    audio_quality:
+      distil_mos_threshold: 3.0
+      dnsmos_threshold: 3.0
+      dnsmospro_threshold: 3.0
+  
+  english:
+    asr:
+      language: "en"
+      model_name: "large-v3"
+      model_cache_dir: "/root/data/pretrained_models"
+    vad:
+      threshold: 0.5
+    audio_quality:
+      distil_mos_threshold: 3.0     # 英语音质要求更高
+      dnsmos_threshold: 3.0
+      dnsmospro_threshold: 3.0 

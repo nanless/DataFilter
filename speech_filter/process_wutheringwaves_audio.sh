@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# 星铁音频处理脚本 - 多语言多GPU版本
-# 处理 starrail_3.3 目录下的三个语言目录
+# 鸣潮音频处理脚本 - 多语言多GPU版本
+# 处理 wutheringwaves_2.2 目录下的三个语言目录
 
 # 设置颜色输出
 RED='\033[0;31m'
@@ -14,8 +14,8 @@ NC='\033[0m' # No Color
 
 # 脚本配置
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_INPUT_DIR="/root/group-shared/voiceprint/data/speech/speech_enhancement/starrail_3.3"
-BASE_OUTPUT_DIR="/root/group-shared/voiceprint/data/speech/speech_enhancement/starrail_3.3_filtered"
+BASE_INPUT_DIR="/root/group-shared/voiceprint/data/speech/speech_enhancement/wutheringwaves_2.2"
+BASE_OUTPUT_DIR="/root/group-shared/voiceprint/data/speech/speech_enhancement/wutheringwaves_2.2_filtered"
 CONFIG_FILE="${SCRIPT_DIR}/config.yaml"
 
 # 语言目录配置
@@ -65,10 +65,10 @@ print_processing() {
 show_banner() {
     echo -e "${PURPLE}"
     echo "========================================================================"
-    echo "                     星铁音频处理脚本 - 多语言多GPU版本"
+    echo "                     鸣潮音频处理脚本 - 多语言多GPU版本"
     echo "========================================================================"
     echo -e "${NC}"
-    echo "🎯 处理目标: StarRail 3.3 三语言音频数据"
+    echo "🎯 处理目标: WutheringWaves 2.2 三语言音频数据"
     echo "🔧 处理方式: 多GPU并行处理"
     echo "📊 结果保存: 每条音频的详细结果 + 最终汇总"
     echo "🌐 支持语言: 中文、日语、英语"
@@ -311,7 +311,7 @@ def generate_html_report(summary, output_file):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>StarRail 3.3 音频处理汇总报告</title>
+    <title>WutheringWaves 2.2 音频处理汇总报告</title>
     <style>
         body {{ font-family: 'Segoe UI', Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }}
         .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
@@ -333,7 +333,7 @@ def generate_html_report(summary, output_file):
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎵 StarRail 3.3 音频处理汇总报告</h1>
+            <h1>⚡ WutheringWaves 2.2 音频处理汇总报告</h1>
             <p>处理时间: {summary['processing_date']}</p>
         </div>
         
@@ -391,7 +391,7 @@ def generate_html_report(summary, output_file):
     html_content += """
         <div class="footer">
             <p>报告生成时间: {}</p>
-            <p>🚀 由 StarRail 音频处理系统生成</p>
+            <p>⚡ 由 WutheringWaves 音频处理系统生成</p>
         </div>
     </div>
 </body>
@@ -464,7 +464,7 @@ show_help() {
     echo "  --force-reprocess   强制重新处理所有文件"
     echo ""
     echo "说明:"
-    echo "  这个脚本用于批量处理StarRail 3.3的三语言音频文件。"
+    echo "  这个脚本用于批量处理WutheringWaves 2.2的三语言音频文件。"
     echo "  支持多GPU并行处理，每条音频都会保存详细的处理结果。"
     echo ""
     echo "输入目录: $BASE_INPUT_DIR"
@@ -487,7 +487,7 @@ main() {
     local check_only=false
     local verbose=false
     local dry_run=false
-    local skip_processed=false
+    local skip_processed=true
     local force_reprocess=false
     
     # 解析命令行参数
@@ -645,7 +645,7 @@ main() {
     fi
     
     # 开始处理
-    print_highlight "开始批量处理StarRail 3.3音频..."
+    print_highlight "开始批量处理WutheringWaves 2.2音频..."
     
     local timestamp=$(date +"%Y%m%d_%H%M%S")
     local total_success=0

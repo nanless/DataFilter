@@ -10,7 +10,7 @@ import logging
 import time
 import torch
 import numpy as np
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 import shutil
@@ -26,9 +26,10 @@ logger = logging.getLogger(__name__)
 class MultiGPUPipeline:
     """多GPU并行处理Pipeline"""
     
-    def __init__(self, config: PipelineConfig, num_gpus: int = 4):
+    def __init__(self, config: PipelineConfig, num_gpus: int = 4, skip_processed: bool = False):
         self.config = config
         self.num_gpus = num_gpus
+        self.skip_processed = skip_processed
         
         # 设置多进程启动方式
         import multiprocessing as mp
@@ -44,9 +45,10 @@ class MultiGPUPipeline:
         self.stats = {
             'total_files': 0,
             'processed_files': 0,
+            'skipped_files': 0,
             'passed_files': 0,
             'failed_files': 0,
-            'gpu_stats': {i: {'processed': 0, 'passed': 0, 'failed': 0} for i in range(num_gpus)},
+            'gpu_stats': {i: {'processed': 0, 'skipped': 0, 'passed': 0, 'failed': 0} for i in range(num_gpus)},
             'total_processing_time': 0.0
         }
         
@@ -85,8 +87,67 @@ class MultiGPUPipeline:
         
         return sorted(audio_files)
     
+    def _is_file_processed(self, file_path: str, input_dir: str, output_dir: str) -> bool:
+        """检查文件是否已经处理过"""
+        try:
+            # 计算相对路径
+            relative_path = os.path.relpath(file_path, input_dir)
+            
+            # 计算JSON文件路径
+            audio_filename = os.path.basename(relative_path)
+            audio_dirname = os.path.dirname(relative_path)
+            json_filename = f"{audio_filename}.json"
+            json_file_path = os.path.join(output_dir, audio_dirname, json_filename)
+            
+            # 检查JSON文件是否存在
+            if not os.path.exists(json_file_path):
+                return False
+            
+            # 读取JSON文件并检查内容
+            with open(json_file_path, 'r', encoding='utf-8') as f:
+                result_data = json.load(f)
+            
+            # 检查是否包含完整的处理结果
+            required_fields = ['file_path', 'passed', 'vad_segments', 'transcription', 'quality_scores']
+            for field in required_fields:
+                if field not in result_data:
+                    return False
+            
+            # 检查是否有处理时间戳
+            if 'timestamp' not in result_data:
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.debug(f"检查文件处理状态失败 {file_path}: {e}")
+            return False
+    
+    def _filter_processed_files(self, audio_files: List[str], input_dir: str, output_dir: str) -> Tuple[List[str], List[str]]:
+        """过滤已处理的文件，返回需要处理的文件列表和跳过的文件列表"""
+        if not self.skip_processed:
+            return audio_files, []
+        
+        files_to_process = []
+        skipped_files = []
+        
+        logger.info("正在检查已处理文件...")
+        
+        for file_path in audio_files:
+            if self._is_file_processed(file_path, input_dir, output_dir):
+                skipped_files.append(file_path)
+            else:
+                files_to_process.append(file_path)
+        
+        logger.info(f"文件处理状态检查完成: {len(files_to_process)} 个需要处理, {len(skipped_files)} 个已跳过")
+        
+        return files_to_process, skipped_files
+    
     def _split_files_to_gpus(self, audio_files: List[str]) -> List[List[str]]:
         """将音频文件分割到各个GPU"""
+        if not audio_files:
+            return [[] for _ in range(self.num_gpus)]
+        
         chunk_size = len(audio_files) // self.num_gpus
         chunks = []
         
@@ -135,12 +196,22 @@ class MultiGPUPipeline:
         # 创建输出目录
         os.makedirs(output_dir, exist_ok=True)
         
-        # 创建日志目录
-        log_dir = os.path.join(output_dir, "logs")
+        # 创建日志目录 - 放在上级目录的logs下
+        log_dir = os.path.join(os.path.dirname(output_dir), "logs")
         os.makedirs(log_dir, exist_ok=True)
         
+        # 过滤已处理的文件
+        files_to_process, skipped_files = self._filter_processed_files(audio_files, input_dir, output_dir)
+        self.stats['skipped_files'] = len(skipped_files)
+        
+        if not files_to_process:
+            logger.info("所有文件都已处理完成，无需重新处理")
+            return self.stats
+        
+        logger.info(f"需要处理 {len(files_to_process)} 个文件，跳过 {len(skipped_files)} 个已处理文件")
+        
         # 将文件分割到各个GPU
-        gpu_file_chunks = self._split_files_to_gpus(audio_files)
+        gpu_file_chunks = self._split_files_to_gpus(files_to_process)
         
         # 使用多进程处理各个GPU
         start_time = time.time()
@@ -352,7 +423,8 @@ class MultiGPUPipeline:
     
     def _save_multi_gpu_stats(self, output_dir: str):
         """保存多GPU处理统计"""
-        stats_file = os.path.join(output_dir, "multi_gpu_stats.json")
+        # 统计文件保存在上级目录
+        stats_file = os.path.join(os.path.dirname(output_dir), "results", "multi_gpu_stats.json")
         
         # 添加时间戳
         self.stats['timestamp'] = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -384,8 +456,8 @@ class MultiGPUPipeline:
                     'word_count': result.transcription.get('word_count', 0)
                 })
         
-        # 保存汇总的转录文本
-        transcription_file = os.path.join(output_dir, 'multi_gpu_transcriptions.json')
+        # 保存汇总的转录文本 - 保存在上级目录
+        transcription_file = os.path.join(os.path.dirname(output_dir), 'results', 'multi_gpu_transcriptions.json')
         with open(transcription_file, 'w', encoding='utf-8') as f:
             json.dump(transcriptions, f, indent=2, ensure_ascii=False)
         
@@ -407,8 +479,8 @@ class MultiGPUPipeline:
                     'overall': scores.get('overall', 0)
                 })
         
-        # 保存汇总的音质报告
-        quality_file = os.path.join(output_dir, 'multi_gpu_quality_report.json')
+        # 保存汇总的音质报告 - 保存在上级目录
+        quality_file = os.path.join(os.path.dirname(output_dir), 'results', 'multi_gpu_quality_report.json')
         with open(quality_file, 'w', encoding='utf-8') as f:
             json.dump(quality_data, f, indent=2, ensure_ascii=False)
         
@@ -430,14 +502,23 @@ class MultiGPUPipeline:
         # 创建详细结果索引文件
         index_data = {
             'total_json_files': json_count,
+            'processed_files': self.stats['processed_files'],
+            'skipped_files': self.stats['skipped_files'],
             'creation_time': time.strftime('%Y-%m-%d %H:%M:%S'),
             'gpu_count': self.num_gpus,
             'description': '每条音频的详细处理结果JSON文件已保存在与音频文件相同的目录中',
             'note': 'JSON文件包含VAD、识别和音质评估信息，与对应的音频文件在同一目录',
-            'processed_files': sorted(processed_files)
+            'processed_files_list': sorted(processed_files)
         }
         
-        index_file = os.path.join(output_dir, 'detailed_results_index.json')
+        # 如果启用了跳过处理，添加跳过文件信息
+        if self.skip_processed:
+            index_data['skip_processed_enabled'] = True
+            index_data['note'] += '，跳过了已处理的文件'
+        
+        # 索引文件保存在上级目录
+        index_file = os.path.join(os.path.dirname(output_dir), 'results', 'detailed_results_index.json')
+        os.makedirs(os.path.dirname(index_file), exist_ok=True)
         with open(index_file, 'w', encoding='utf-8') as f:
             json.dump(index_data, f, indent=2, ensure_ascii=False)
         
@@ -452,6 +533,8 @@ class MultiGPUPipeline:
         print("="*60)
         print(f"总文件数:           {stats['total_files']}")
         print(f"已处理文件数:       {stats['processed_files']}")
+        if self.skip_processed:
+            print(f"跳过文件数:         {stats['skipped_files']}")
         print(f"通过筛选文件数:     {stats['passed_files']}")
         print(f"未通过筛选文件数:   {stats['failed_files']}")
         print(f"通过率:             {stats.get('pass_rate', 0):.2f}%")
@@ -465,4 +548,6 @@ class MultiGPUPipeline:
         if stats['processed_files'] > 0:
             avg_time = stats['total_processing_time'] / stats['processed_files']
             print(f"平均处理时间:       {avg_time:.2f}秒/文件")
+        if self.skip_processed and stats['skipped_files'] > 0:
+            print(f"跳过文件节省时间:   预计节省{stats['skipped_files'] * avg_time:.2f}秒" if stats['processed_files'] > 0 else "")
         print("="*60) 

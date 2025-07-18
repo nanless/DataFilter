@@ -6,7 +6,8 @@
 
 - **多GPU并行处理**：支持4张GPU同时处理，处理效率提升4倍以上
 - **多模型音质评估**：集成DistilMOS、DNSMOS、DNSMOSPro三种音质评估模型
-- **实时结果保存**：每条音频的处理结果实时保存在音频文件旁边，避免数据丢失
+- **实时结果保存**：每条音频的处理结果实时保存，避免数据丢失
+- **断点续传**：自动检测已处理文件，跳过重复处理，支持断点续传
 - **多语言支持**：支持中文、英语、日语等多种语言的音频处理
 - **灵活配置系统**：支持YAML配置文件和命令行参数配置
 - **专业音频处理**：VAD检测、Whisper语音识别、音质评估完整流程
@@ -18,6 +19,7 @@
 语音筛选Pipeline
 ├── 输入音频文件
 │   ├── 音频格式检查
+│   ├── 已处理文件检测
 │   └── 文件预处理
 ├── 多GPU并行处理
 │   ├── GPU0: 音频块1
@@ -61,6 +63,11 @@
 - 实时进度监控和结果收集
 - 每个GPU独立日志记录
 
+### 5. 断点续传
+- 自动检测已处理文件
+- 跳过重复处理，节省时间
+- 支持增量处理新文件
+
 ## 🚀 快速开始
 
 ### 环境要求
@@ -99,13 +106,16 @@ python download_models.py --dnsmospro --cache-dir /root/data/pretrained_models
 
 ```bash
 # 单GPU处理
-python main_multi_gpu.py /path/to/audio -o /path/to/output
+python main_multi_gpu.py /path/to/audio -o /path/to/output --num-gpus 1
 
 # 多GPU处理
 python main_multi_gpu.py /path/to/audio -o /path/to/output --num-gpus 4
 
 # 使用配置文件
 python main_multi_gpu.py /path/to/audio -o /path/to/output --config config.yaml
+
+# 断点续传（自动跳过已处理文件）
+python main_multi_gpu.py /path/to/audio -o /path/to/output --skip-processed
 ```
 
 ## 🔧 配置系统
@@ -168,6 +178,10 @@ python main_multi_gpu.py input_dir [OPTIONS]
 # 多GPU配置
 --num-gpus 4                      # 使用的GPU数量
 
+# 断点续传
+--skip-processed                  # 跳过已处理的文件
+--force-reprocess                 # 强制重新处理所有文件
+
 # 配置文件
 --config config.yaml              # 配置文件路径
 --language-preset japanese        # 语言预设配置
@@ -224,31 +238,58 @@ python main_multi_gpu.py input_dir [OPTIONS]
 ./process_starrail_audio.sh --num-gpus 2
 ```
 
+### 鸣潮音频处理脚本
+
+专为鸣潮2.2多语言音频数据设计的处理脚本：
+
+```bash
+# 基本使用
+./process_wutheringwaves_audio.sh
+
+# 其他参数与StarRail脚本相同
+```
+
 ## 📊 输出文件结构
 
-### 主要输出文件
+### 处理后的目录结构
 
-#### 1. 筛选后的音频文件
 ```
-output_dir/
-├── folder1/
-│   ├── audio1.wav              # 通过筛选的音频
-│   ├── audio1.wav.json         # 对应的详细结果
-│   └── audio2.wav.json         # 未通过筛选的音频只有JSON文件
-├── folder2/
-│   ├── audio3.wav
-│   ├── audio3.wav.json
-│   └── audio4.wav.json
-└── logs/                       # 日志文件目录
-    ├── gpu_0_processing.log    # GPU0处理日志
-    ├── gpu_1_processing.log    # GPU1处理日志
-    ├── gpu_2_processing.log    # GPU2处理日志
-    ├── gpu_3_processing.log    # GPU3处理日志
-    └── processing.log          # 主日志文件
+输出目录/
+├── 筛选后的音频文件/
+│   ├── folder1/
+│   │   ├── passed_audio1.wav        # 通过筛选的音频
+│   │   ├── passed_audio1.wav.json   # 通过音频的详细结果
+│   │   ├── failed_audio2.wav.json   # 未通过音频的详细结果（无音频文件）
+│   │   └── passed_audio3.wav
+│   └── folder2/
+│       ├── passed_audio4.wav
+│       ├── passed_audio4.wav.json
+│       └── failed_audio5.wav.json
+├── 汇总文件/
+│   ├── multi_gpu_stats.json          # 多GPU处理统计
+│   ├── multi_gpu_transcriptions.json # 转录文本汇总
+│   ├── multi_gpu_quality_report.json # 音质报告汇总
+│   ├── multi_gpu_report.html         # HTML可视化报告
+│   └── detailed_results_index.json   # 详细结果索引
+└── 日志文件/
+    ├── gpu_0_processing.log          # GPU0处理日志
+    ├── gpu_1_processing.log          # GPU1处理日志
+    ├── gpu_2_processing.log          # GPU2处理日志
+    ├── gpu_3_processing.log          # GPU3处理日志
+    └── processing.log                 # 主日志文件
 ```
 
-#### 2. 个人音频详细结果 (*.json)
+### 处理文件标识
+
+系统通过以下方式识别已处理文件：
+- 每个音频文件对应一个`.json`文件
+- JSON文件包含完整的处理结果
+- 如果JSON文件存在且包含有效结果，则跳过重新处理
+
+### 个人音频详细结果 (*.json)
+
 每条音频对应一个JSON文件，与音频文件在同一目录：
+
 ```json
 {
   "file_path": "/input/audio1.wav",
@@ -276,60 +317,40 @@ output_dir/
 }
 ```
 
-#### 3. 多GPU处理统计 (multi_gpu_stats.json)
+### 多GPU处理统计 (multi_gpu_stats.json)
+
 ```json
 {
   "total_files": 10000,
   "processed_files": 10000,
+  "skipped_files": 2000,
   "passed_files": 6500,
   "failed_files": 3500,
   "total_processing_time": 3600.0,
   "pass_rate": 65.0,
   "gpu_stats": {
-    "0": {"processed": 2500, "passed": 1625, "failed": 875},
-    "1": {"processed": 2500, "passed": 1625, "failed": 875},
-    "2": {"processed": 2500, "passed": 1625, "failed": 875},
-    "3": {"processed": 2500, "passed": 1625, "failed": 875}
+    "0": {"processed": 2000, "skipped": 500, "passed": 1300, "failed": 700},
+    "1": {"processed": 2000, "skipped": 500, "passed": 1300, "failed": 700},
+    "2": {"processed": 2000, "skipped": 500, "passed": 1300, "failed": 700},
+    "3": {"processed": 2000, "skipped": 500, "passed": 1300, "failed": 700}
   }
 }
 ```
 
-#### 4. 详细结果索引 (detailed_results_index.json)
+### 详细结果索引 (detailed_results_index.json)
+
 ```json
 {
   "total_json_files": 10000,
+  "processed_files": 8000,
+  "skipped_files": 2000,
   "creation_time": "2024-01-01 12:00:00",
   "gpu_count": 4,
   "description": "每条音频的详细处理结果JSON文件已保存在与音频文件相同的目录中",
   "note": "JSON文件包含VAD、识别和音质评估信息，与对应的音频文件在同一目录",
-  "processed_files": ["audio1.wav.json", "audio2.wav.json", ...]
+  "processed_files_list": ["audio1.wav.json", "audio2.wav.json", ...],
+  "skipped_files_list": ["audio3.wav.json", "audio4.wav.json", ...]
 }
-```
-
-#### 5. 转录文本汇总 (multi_gpu_transcriptions.json)
-```json
-[
-  {
-    "file_path": "audio1.wav",
-    "text": "这是一段测试语音",
-    "language": "zh",
-    "word_count": 6
-  }
-]
-```
-
-#### 6. 音质评估报告 (multi_gpu_quality_report.json)
-```json
-[
-  {
-    "file_path": "audio1.wav",
-    "passed": true,
-    "distilmos": 4.2,
-    "dnsmos": 4.1,
-    "dnsmospro": 4.0,
-    "overall": 4.1
-  }
-]
 ```
 
 ## 🛠️ 技术实现
@@ -341,6 +362,13 @@ output_dir/
 3. **设备映射**：通过CUDA_VISIBLE_DEVICES实现GPU设备映射
 4. **结果收集**：使用ProcessPoolExecutor收集各GPU结果
 5. **独立日志**：每个GPU独立的日志记录，便于调试
+
+### 断点续传机制
+
+1. **文件检测**：扫描输出目录，查找已存在的JSON结果文件
+2. **结果验证**：检查JSON文件是否包含完整的处理结果
+3. **智能跳过**：跳过已处理的文件，仅处理新文件或失败文件
+4. **增量处理**：支持向输入目录添加新文件后的增量处理
 
 ### 音质评估模型
 
@@ -397,6 +425,12 @@ python main_multi_gpu.py input -o output \
     --disable-dnsmos \
     --disable-dnsmospro \
     --vad-threshold 0.4
+
+# 断点续传配置
+python main_multi_gpu.py input -o output \
+    --num-gpus 4 \
+    --skip-processed \
+    --detailed-results
 ```
 
 ### 性能基准
@@ -404,6 +438,7 @@ python main_multi_gpu.py input -o output \
 - **4张A100**: ~1500个文件/小时
 - **单GPU模式**: ~250个文件/小时
 - **内存占用**: ~8GB/GPU
+- **断点续传**: 跳过已处理文件，速度提升显著
 
 ## 🔍 故障排除
 
@@ -421,10 +456,16 @@ python main_multi_gpu.py input -o output \
    python download_models.py --all --cache-dir /root/data/pretrained_models
    ```
 
-3. **JSON序列化错误**
+3. **处理中断后续传**
+   ```bash
+   # 解决方案：使用断点续传功能
+   python main_multi_gpu.py input -o output --skip-processed
+   ```
+
+4. **JSON序列化错误**
    - 项目已集成数据类型转换，自动处理numpy类型
 
-4. **多进程冲突**
+5. **多进程冲突**
    - 使用进程池隔离，避免CUDA上下文冲突
 
 ### 日志分析
@@ -440,6 +481,9 @@ cat /path/to/output/multi_gpu_stats.json
 
 # 检查详细结果索引
 cat /path/to/output/detailed_results_index.json
+
+# 查看已处理文件数量
+python -c "import json; data=json.load(open('/path/to/output/detailed_results_index.json')); print(f'已处理: {data[\"processed_files\"]}, 跳过: {data[\"skipped_files\"]}')"
 ```
 
 ## 🧪 测试和验证
@@ -454,12 +498,18 @@ ls -la /root/data/pretrained_models/
 
 # 检查GPU状态
 nvidia-smi
+
+# 快速功能测试
+python quick_test.py
 ```
 
 ### 功能测试
 ```bash
 # 小规模测试
 python main_multi_gpu.py test_audio/ -o test_output/ --num-gpus 1
+
+# 断点续传测试
+python main_multi_gpu.py test_audio/ -o test_output/ --skip-processed
 
 # 性能测试
 time python main_multi_gpu.py large_dataset/ -o output/ --num-gpus 4 --quiet
@@ -483,6 +533,9 @@ speech_filter/
 ├── download_models.py             # 模型下载脚本
 ├── dnsmospro_utils.py             # DNSMOSPro工具函数
 ├── process_starrail_audio.sh      # StarRail专用处理脚本
+├── process_wutheringwaves_audio.sh # 鸣潮专用处理脚本
+├── quick_test.py                  # 快速功能测试脚本
+├── test_multi_gpu.py              # 多GPU功能测试脚本
 ├── requirements.txt               # 依赖列表
 └── README.md                      # 文档
 ```
@@ -492,6 +545,7 @@ speech_filter/
 2. **支持新的音频格式**：在`config.yaml`中添加格式支持
 3. **自定义VAD模型**：在`vad_detector.py`中实现新的VAD检测器
 4. **新的语言支持**：在`config.yaml`中添加语言配置
+5. **断点续传优化**：在`multi_gpu_pipeline.py`中扩展文件检测逻辑
 
 ## 🤝 贡献指南
 
@@ -514,6 +568,6 @@ speech_filter/
 
 ---
 
-**版本**: 2.0.0  
+**版本**: 2.1.0  
 **最后更新**: 2024年1月  
 **维护者**: Speech Filter Team

@@ -27,6 +27,7 @@ def parse_arguments():
   python main_multi_gpu.py /path/to/audio_files -o /path/to/filtered_audio
   python main_multi_gpu.py input_dir -o output_dir --language zh --num-gpus 4
   python main_multi_gpu.py input_dir -o output_dir --distilmos-threshold 3.5 --dnsmos-threshold 3.0
+  python main_multi_gpu.py input_dir -o output_dir --skip-processed --num-gpus 4
         """
     )
     
@@ -67,6 +68,8 @@ def parse_arguments():
     # 处理配置
     parser.add_argument('--sample-rate', type=int, help='重采样率 (默认: 16000)')
     parser.add_argument('--formats', nargs='+', default=['.wav', '.mp3', '.flac', '.m4a'], help='支持的音频格式')
+    parser.add_argument('--skip-processed', action='store_true', help='跳过已处理的文件')
+    parser.add_argument('--force-reprocess', action='store_true', help='强制重新处理所有文件')
     
     # 输出控制
     parser.add_argument('--export-transcriptions', action='store_true', help='导出转录文本')
@@ -153,6 +156,9 @@ def main():
             print(f"创建输出目录失败: {args.output_dir}", file=sys.stderr)
             sys.exit(1)
         
+        # 确定是否跳过已处理文件
+        skip_processed = args.skip_processed and not args.force_reprocess
+        
         # 打印配置信息
         if not args.quiet:
             print("="*60)
@@ -161,6 +167,7 @@ def main():
             print(f"输入目录:           {args.input_dir}")
             print(f"输出目录:           {args.output_dir}")
             print(f"使用GPU数量:        {args.num_gpus}")
+            print(f"跳过已处理文件:     {'是' if skip_processed else '否'}")
             print(f"Whisper模型:        {args.whisper_model}")
             print(f"目标语言:           {args.language or '自动检测'}")
             print(f"TEN VAD阈值:        {args.vad_threshold or config.vad.threshold}")
@@ -173,7 +180,7 @@ def main():
             print()
         
         # 创建多GPU pipeline并开始处理
-        multi_gpu_pipeline = MultiGPUPipeline(config, num_gpus=args.num_gpus)
+        multi_gpu_pipeline = MultiGPUPipeline(config, num_gpus=args.num_gpus, skip_processed=skip_processed)
         
         start_time = time.time()
         stats = multi_gpu_pipeline.process_directory(args.input_dir, args.output_dir)
@@ -198,7 +205,8 @@ def main():
         if args.generate_html_report:
             if not args.quiet:
                 print("\n生成HTML报告...")
-            html_path = os.path.join(args.output_dir, 'multi_gpu_report.html')
+            # HTML报告保存在上级目录
+            html_path = os.path.join(os.path.dirname(args.output_dir), 'multi_gpu_report.html')
             try:
                 from utils import generate_report_html
                 # 使用存储的所有结果
@@ -213,9 +221,9 @@ def main():
             print("\n处理完成！")
             print("="*60)
             print(f"输出目录: {args.output_dir}")
-            print(f"处理统计: {args.output_dir}/multi_gpu_stats.json")
+            print(f"处理统计: {os.path.dirname(args.output_dir)}/multi_gpu_stats.json")
             print(f"详细结果: 每个音频文件旁边的.json文件")
-            print(f"日志文件: {args.output_dir}/logs/")
+            print(f"日志文件: {os.path.dirname(args.output_dir)}/logs/")
             print("="*60)
         
         # 返回成功状态

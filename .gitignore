@@ -7,3 +7,5 @@ eval_data
 .ipynb_checkpoints
 *pyc
 effb2.pt
+temp*
+gpu_work

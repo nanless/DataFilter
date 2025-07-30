@@ -50,6 +50,9 @@ class AudioQualityAssessor:
         self.enable_dnsmos = config.audio_quality.use_dnsmos
         self.enable_dnsmospro = config.audio_quality.use_dnsmospro
         
+        # 支持指定GPU设备
+        self.device = getattr(config.audio_quality, 'device', None)
+        
         # 模型缓存目录
         self.model_cache_dir = getattr(config.asr, 'model_cache_dir', '/root/data/pretrained_models')
         
@@ -63,6 +66,14 @@ class AudioQualityAssessor:
     
     def _get_safe_device(self):
         """获取在多进程环境中安全的设备"""
+        # 如果指定了设备，使用指定的设备
+        if self.device:
+            if self.device.startswith("cuda") and torch.cuda.is_available():
+                return self.device
+            elif self.device == "cpu":
+                return "cpu"
+        
+        # 默认行为
         if torch.cuda.is_available():
             # 在多进程环境中，使用当前可见的第一个GPU
             return "cuda:0"

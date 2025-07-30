@@ -18,6 +18,7 @@ import logging
 import threading
 import time
 from contextlib import contextmanager
+import re
 
 # 抑制警告
 warnings.filterwarnings("ignore")
@@ -81,8 +82,8 @@ class SpeechRecognizer:
                 # 加载模型
                 # 在多进程环境中，确保使用正确的设备映射
                 if torch.cuda.is_available():
-                    # 如果CUDA可用，使用当前可见的第一个GPU
-                    actual_device = "cuda:0"
+                    # 使用配置中指定的设备，而不是固定的cuda:0
+                    actual_device = self.device if self.device != "auto" else "cuda:0"
                 else:
                     actual_device = "cpu"
                 
@@ -228,7 +229,13 @@ class SpeechRecognizer:
                 segments = result.get('segments', [])
                 
                 # 计算词数
-                word_count = len(text.split()) if text else 0
+                if detected_language in ['zh', 'chinese', 'zh-cn', 'zh-tw']:
+                    # 对于中文，使用字符数（去除标点符号）作为词数估算
+                    chinese_chars = re.findall(r'[\u4e00-\u9fff]', text)
+                    word_count = len(chinese_chars) if chinese_chars else 0
+                else:
+                    # 对于其他语言，使用空格分割
+                    word_count = len(text.split()) if text else 0
                 
                 logger.info(f"转录完成：{audio_path}，检测语言：{detected_language}，词数：{word_count}")
                 
@@ -378,7 +385,15 @@ class SpeechRecognizer:
                 # 提取文本
                 text = result.get("text", "").strip()
                 language = result.get("language", "unknown")
-                word_count = len(text.split()) if text else 0
+                
+                # 计算词数
+                if language in ['zh', 'chinese', 'zh-cn', 'zh-tw']:
+                    # 对于中文，使用字符数（去除标点符号）作为词数估算
+                    chinese_chars = re.findall(r'[\u4e00-\u9fff]', text)
+                    word_count = len(chinese_chars) if chinese_chars else 0
+                else:
+                    # 对于其他语言，使用空格分割
+                    word_count = len(text.split()) if text else 0
                 
                 return {
                     "text": text,

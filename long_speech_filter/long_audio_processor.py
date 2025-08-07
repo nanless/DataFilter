@@ -13,9 +13,9 @@ from dataclasses import dataclass
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from config import LongAudioProcessingConfig
-from speaker_diarization import LongAudioSpeakerDiarizer
-from quality_filter import LongAudioQualityFilter
+from .config import LongAudioProcessingConfig
+from .speaker_diarization import LongAudioSpeakerDiarizer
+from .quality_filter import LongAudioQualityFilter
 
 # 设置日志
 logger = logging.getLogger(__name__)
@@ -133,8 +133,61 @@ class LongAudioProcessor:
             files = list(input_path.glob(pattern))
             audio_files.extend([str(f) for f in files])
         
-        logger.info(f"在目录 {input_dir} 中找到 {len(audio_files)} 个音频文件")
+        all_files = audio_files
+        
+        # 如果启用跳过已处理文件功能
+        if self.config.processing.skip_processed and not self.config.processing.force_reprocess:
+            unprocessed_files = []
+            skipped_count = 0
+            
+            for audio_file in all_files:
+                if not self._is_file_processed(Path(audio_file)):
+                    unprocessed_files.append(audio_file)
+                else:
+                    skipped_count += 1
+            
+            if skipped_count > 0:
+                logger.info(f"跳过 {skipped_count} 个已处理的文件")
+                logger.info(f"剩余 {len(unprocessed_files)} 个文件需要处理")
+            
+            audio_files = unprocessed_files
+        
+        logger.info(f"在目录 {input_dir} 中找到 {len(audio_files)} 个需要处理的音频文件")
         return audio_files
+    
+    def _is_file_processed(self, audio_file: Path) -> bool:
+        """
+        检查音频文件是否已经被处理
+        
+        判断标准：
+        1. 输出目录中存在对应的音频ID目录
+        2. 存在 processing_summary.json 文件
+        3. summary中显示处理成功
+        """
+        try:
+            audio_id = audio_file.stem
+            output_dir = Path(self.config.output_dir) / audio_id
+            summary_file = output_dir / "processing_summary.json"
+            
+            # 检查摘要文件是否存在
+            if not summary_file.exists():
+                return False
+            
+            # 读取摘要文件检查处理状态
+            with open(summary_file, 'r', encoding='utf-8') as f:
+                summary = json.load(f)
+                
+                # 检查是否成功处理且有输出
+                if (summary.get('success', False) and 
+                    summary.get('processing_results', {}).get('passed_segments', 0) > 0):
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            # 如果检查过程中出现错误，保守起见认为未处理
+            logger.debug(f"检查文件 {audio_file} 处理状态时出错: {e}")
+            return False
     
     def process_single_audio(self, audio_path: str) -> ProcessingResult:
         """

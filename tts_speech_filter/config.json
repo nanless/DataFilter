@@ -1,0 +1,20 @@
+{
+    "global_config": {
+        "kimi_model_path": "/root/data/pretrained_models/Kimi-Audio-7B-Instruct",
+        "kimi_audio_dir": "/root/code/github_repos/Kimi-Audio",
+        "whisper_model_dir": "/root/data/pretrained_models/whisper_modes",
+        "cer_threshold": 0.2,
+        "num_gpus": 8,
+        "gpu_ids": [0, 1, 2, 3, 4, 5, 6, 7]
+    },
+    "output_settings": {
+        "output_dir": "/root/group-shared/voiceprint/share/tts_filter_results",
+        "save_filtered_list": true,
+        "save_detailed_results": true
+    },
+    "processing_settings": {
+        "batch_size": 32,
+        "max_workers_per_gpu": 1,
+        "timeout_seconds": 300
+    }
+}

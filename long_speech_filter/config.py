@@ -59,6 +59,8 @@ class ProcessingConfig:
     sample_rate: int = 16000
     max_workers: int = 4
     temp_dir: str = "temp"
+    skip_processed: bool = True  # 默认跳过已处理的文件
+    force_reprocess: bool = False  # 强制重新处理，即使已存在结果
 
 @dataclass
 class LongAudioProcessingConfig:

@@ -9,3 +9,5 @@ eval_data
 effb2.pt
 temp*
 gpu_work
+results
+logs

@@ -121,6 +121,7 @@ class LongAudioQualityFilter:
         # 记录配置信息
         logger.info("📋 质量筛选配置:")
         logger.info(f"   🎤 Whisper模型: {self.config.whisper.model_name}")
+        logger.info(f"   🖥️ 设备: {self.config.whisper.device}")
         logger.info(f"   🔤 最少词数: {self.config.quality_filter.min_words}")
         logger.info(f"   📊 质量阈值:")
         if self.config.quality_filter.use_distil_mos:
@@ -130,25 +131,16 @@ class LongAudioQualityFilter:
         if self.config.quality_filter.use_dnsmospro:
             logger.info(f"      • DNSMOSPro ≥ {self.config.quality_filter.dnsmospro_threshold}")
         
-        # 初始化语音识别器
+        # 添加显存清理
+        self._cleanup_gpu_memory()
+        
+        # 初始化语音识别器 - 带重试机制
         logger.info("🎤 正在初始化Whisper语音识别器...")
-        try:
-            self.speech_recognizer = SpeechRecognizer(self.compat_config)
-            logger.info("✅ 成功初始化语音识别器")
-        except Exception as e:
-            logger.error(f"❌ 初始化语音识别器失败: {e}")
-            logger.exception("详细错误信息:")
-            self.speech_recognizer = None
+        self.speech_recognizer = self._init_speech_recognizer_with_retry()
             
-        # 初始化音质评估器
+        # 初始化音质评估器 - 带重试机制
         logger.info("🎵 正在初始化MOS音质评估器...")
-        try:
-            self.quality_assessor = AudioQualityAssessor(self.compat_config)
-            logger.info("✅ 成功初始化音质评估器")
-        except Exception as e:
-            logger.error(f"❌ 初始化音质评估器失败: {e}")
-            logger.exception("详细错误信息:")
-            self.quality_assessor = None
+        self.quality_assessor = self._init_quality_assessor_with_retry()
         
         # 最终状态检查
         if self.speech_recognizer and self.quality_assessor:
@@ -207,6 +199,140 @@ class LongAudioQualityFilter:
         
         return CompatConfig(self.asr_config, self.quality_config, self.processing_config)
     
+    def _cleanup_gpu_memory(self):
+        """清理GPU显存"""
+        try:
+            import torch
+            import gc
+            
+            if torch.cuda.is_available():
+                # 强制垃圾回收
+                gc.collect()
+                # 清理未使用的缓存
+                torch.cuda.empty_cache()
+                # 同步GPU操作
+                torch.cuda.synchronize()
+                
+                current_device = torch.cuda.current_device()
+                allocated = torch.cuda.memory_allocated(current_device)
+                cached = torch.cuda.memory_reserved(current_device)
+                logger.info(f"显存清理完成 - 已分配: {allocated/1024**3:.2f}GB, 已缓存: {cached/1024**3:.2f}GB")
+                
+        except Exception as e:
+            logger.warning(f"清理GPU显存时出错: {e}")
+    
+    def _init_speech_recognizer_with_retry(self, max_retries: int = 3):
+        """带重试机制的语音识别器初始化"""
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"🔄 尝试初始化语音识别器 (第{attempt + 1}/{max_retries}次)")
+                
+                # 清理显存
+                self._cleanup_gpu_memory()
+                
+                # 尝试创建语音识别器
+                speech_recognizer = SpeechRecognizer(self.compat_config)
+                logger.info("✅ 成功初始化语音识别器")
+                return speech_recognizer
+                
+            except Exception as e:
+                logger.error(f"❌ 第{attempt + 1}次初始化语音识别器失败: {e}")
+                
+                if "CUDA out of memory" in str(e):
+                    logger.warning("🔥 CUDA显存不足，尝试清理显存...")
+                    self._aggressive_memory_cleanup()
+                    
+                    if attempt < max_retries - 1:
+                        import time
+                        logger.info("⏳ 等待5秒后重试...")
+                        time.sleep(5)
+                    else:
+                        logger.error("💥 显存不足，尝试使用CPU模式...")
+                        return self._try_cpu_fallback()
+                else:
+                    if attempt == max_retries - 1:
+                        logger.exception("详细错误信息:")
+        
+        logger.error("❌ 语音识别器初始化完全失败")
+        return None
+    
+    def _init_quality_assessor_with_retry(self, max_retries: int = 3):
+        """带重试机制的音质评估器初始化"""
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"🔄 尝试初始化音质评估器 (第{attempt + 1}/{max_retries}次)")
+                
+                # 清理显存
+                self._cleanup_gpu_memory()
+                
+                # 尝试创建音质评估器
+                quality_assessor = AudioQualityAssessor(self.compat_config)
+                logger.info("✅ 成功初始化音质评估器")
+                return quality_assessor
+                
+            except Exception as e:
+                logger.error(f"❌ 第{attempt + 1}次初始化音质评估器失败: {e}")
+                
+                if "CUDA out of memory" in str(e):
+                    logger.warning("🔥 CUDA显存不足，尝试清理显存...")
+                    self._aggressive_memory_cleanup()
+                    
+                    if attempt < max_retries - 1:
+                        import time
+                        logger.info("⏳ 等待3秒后重试...")
+                        time.sleep(3)
+                else:
+                    if attempt == max_retries - 1:
+                        logger.exception("详细错误信息:")
+        
+        logger.error("❌ 音质评估器初始化完全失败")
+        return None
+    
+    def _aggressive_memory_cleanup(self):
+        """激进的显存清理"""
+        try:
+            import torch
+            import gc
+            
+            if torch.cuda.is_available():
+                # 多轮清理
+                for i in range(3):
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                
+                # 尝试释放所有未使用的显存
+                try:
+                    torch.cuda.memory._empty_cache()
+                except:
+                    pass
+                
+                current_device = torch.cuda.current_device()
+                allocated = torch.cuda.memory_allocated(current_device)
+                cached = torch.cuda.memory_reserved(current_device)
+                logger.info(f"激进清理完成 - 已分配: {allocated/1024**3:.2f}GB, 已缓存: {cached/1024**3:.2f}GB")
+                
+        except Exception as e:
+            logger.warning(f"激进显存清理时出错: {e}")
+    
+    def _try_cpu_fallback(self):
+        """尝试CPU后备方案"""
+        try:
+            logger.warning("🖥️ 尝试使用CPU模式作为后备方案...")
+            
+            # 修改配置为CPU模式
+            cpu_config = self._create_compat_config()
+            cpu_config.asr.device = "cpu"
+            
+            # 尝试创建CPU版本的语音识别器
+            speech_recognizer = SpeechRecognizer(cpu_config)
+            logger.info("✅ 成功创建CPU模式语音识别器")
+            return speech_recognizer
+            
+        except Exception as e:
+            logger.error(f"❌ CPU后备方案也失败: {e}")
+            return None
+    
     def evaluate_audio_segment(self, audio_path: str) -> AudioSegmentQuality:
         """
         评估单个音频片段的质量
@@ -231,17 +357,27 @@ class LongAudioQualityFilter:
                 logger.error(f"❌ {result.error_message}")
                 return result
             
+            # 检查模块可用性
+            if not SPEECH_FILTER_AVAILABLE:
+                result.error_message = "speech_filter模块不可用"
+                logger.error(f"❌ {result.error_message}")
+                return result
+            
             # 步骤1: 语音识别
             if not self.speech_recognizer:
-                result.error_message = "语音识别器未初始化 - speech_filter模块不可用"
+                result.error_message = "语音识别器未初始化"
                 logger.error(f"❌ {result.error_message}")
                 return result
                 
             logger.info("🎤 步骤1/2: 进行Whisper语音识别...")
-            asr_result = self.speech_recognizer.transcribe_audio_detailed(audio_path)
             
-            if not asr_result.success:
-                result.error_message = f"Whisper识别失败: {asr_result.error_message}"
+            # 在处理前清理显存
+            self._cleanup_gpu_memory()
+            
+            asr_result = self._transcribe_with_retry(audio_path)
+            
+            if not asr_result or not asr_result.success:
+                result.error_message = f"Whisper识别失败: {asr_result.error_message if asr_result else '未知错误'}"
                 logger.error(f"❌ {result.error_message}")
                 return result
             
@@ -276,15 +412,19 @@ class LongAudioQualityFilter:
             
             # 步骤2: 音质评估
             if not self.quality_assessor:
-                result.error_message = "音质评估器未初始化 - speech_filter模块不可用"
+                result.error_message = "音质评估器未初始化"
                 logger.error(f"❌ {result.error_message}")
                 return result
                 
             logger.info("🎵 步骤2/2: 进行MOS音质评估...")
-            quality_result = self.quality_assessor.assess_audio_quality_detailed(audio_path)
             
-            if not quality_result.success:
-                result.error_message = f"MOS音质评估失败: {quality_result.error_message}"
+            # 在音质评估前清理显存
+            self._cleanup_gpu_memory()
+            
+            quality_result = self._assess_quality_with_retry(audio_path)
+            
+            if not quality_result or not quality_result.success:
+                result.error_message = f"MOS音质评估失败: {quality_result.error_message if quality_result else '未知错误'}"
                 logger.error(f"❌ {result.error_message}")
                 return result
             
@@ -349,11 +489,47 @@ class LongAudioQualityFilter:
             logger.exception("详细异常信息:")
             result.error_message = str(e)
         
+        finally:
+            # 评估完成后清理显存
+            self._cleanup_gpu_memory()
+        
         return result
+    
+    def _transcribe_with_retry(self, audio_path: str, max_retries: int = 2):
+        """带重试机制的语音识别"""
+        for attempt in range(max_retries):
+            try:
+                return self.speech_recognizer.transcribe_audio_detailed(audio_path)
+            except Exception as e:
+                logger.warning(f"语音识别第{attempt + 1}次尝试失败: {e}")
+                if "CUDA out of memory" in str(e):
+                    self._aggressive_memory_cleanup()
+                    if attempt < max_retries - 1:
+                        import time
+                        time.sleep(2)
+                elif attempt == max_retries - 1:
+                    raise
+        return None
+    
+    def _assess_quality_with_retry(self, audio_path: str, max_retries: int = 2):
+        """带重试机制的音质评估"""
+        for attempt in range(max_retries):
+            try:
+                return self.quality_assessor.assess_audio_quality_detailed(audio_path)
+            except Exception as e:
+                logger.warning(f"音质评估第{attempt + 1}次尝试失败: {e}")
+                if "CUDA out of memory" in str(e):
+                    self._aggressive_memory_cleanup()
+                    if attempt < max_retries - 1:
+                        import time
+                        time.sleep(2)
+                elif attempt == max_retries - 1:
+                    raise
+        return None
     
     def batch_evaluate_segments(self, audio_files: List[str]) -> List[AudioSegmentQuality]:
         """
-        批量评估音频片段
+        批量评估音频片段 - 带显存管理
         
         Args:
             audio_files: 音频文件路径列表
@@ -373,20 +549,58 @@ class LongAudioQualityFilter:
         passed_count = 0
         failed_reasons = {}
         
-        for i, audio_file in enumerate(audio_files, 1):
-            logger.info(f"📋 评估进度: {i}/{len(audio_files)} ({i/len(audio_files)*100:.1f}%)")
-            result = self.evaluate_audio_segment(audio_file)
-            results.append(result)
+        # 分批处理以减少显存压力
+        batch_size = 5  # 每批处理5个文件
+        
+        for batch_start in range(0, len(audio_files), batch_size):
+            batch_end = min(batch_start + batch_size, len(audio_files))
+            batch_files = audio_files[batch_start:batch_end]
             
-            # 统计结果
-            if result.passed:
-                passed_count += 1
-                logger.info(f"✅ 第{i}个音频通过评估")
-            else:
-                # 统计失败原因
-                reason = result.error_message or "未知错误"
-                failed_reasons[reason] = failed_reasons.get(reason, 0) + 1
-                logger.info(f"❌ 第{i}个音频未通过评估: {reason}")
+            logger.info(f"🔄 处理批次 {batch_start//batch_size + 1}/{(len(audio_files) + batch_size - 1)//batch_size}")
+            
+            # 批次开始前清理显存
+            self._cleanup_gpu_memory()
+            
+            for i, audio_file in enumerate(batch_files):
+                file_index = batch_start + i + 1
+                logger.info(f"📋 评估进度: {file_index}/{len(audio_files)} ({file_index/len(audio_files)*100:.1f}%)")
+                
+                try:
+                    result = self.evaluate_audio_segment(audio_file)
+                    results.append(result)
+                    
+                    # 统计结果
+                    if result.passed:
+                        passed_count += 1
+                        logger.info(f"✅ 第{file_index}个音频通过评估")
+                    else:
+                        # 统计失败原因
+                        reason = result.error_message or "未知错误"
+                        failed_reasons[reason] = failed_reasons.get(reason, 0) + 1
+                        logger.info(f"❌ 第{file_index}个音频未通过评估: {reason}")
+                        
+                except Exception as e:
+                    logger.error(f"💥 评估第{file_index}个音频时发生异常: {e}")
+                    error_result = AudioSegmentQuality(
+                        audio_path=audio_file,
+                        passed=False,
+                        error_message=str(e)
+                    )
+                    results.append(error_result)
+                    failed_reasons[str(e)] = failed_reasons.get(str(e), 0) + 1
+                
+                # 每个文件处理后小清理
+                if file_index % 3 == 0:  # 每3个文件清理一次
+                    self._cleanup_gpu_memory()
+            
+            # 批次结束后强制清理显存
+            logger.info(f"🧹 批次 {batch_start//batch_size + 1} 完成，清理显存...")
+            self._aggressive_memory_cleanup()
+            
+            # 批次间休息
+            if batch_end < len(audio_files):
+                import time
+                time.sleep(1)
         
         # 输出详细的汇总统计
         pass_rate = passed_count / len(results) * 100 if results else 0
@@ -410,9 +624,14 @@ class LongAudioQualityFilter:
                 logger.error(f"   检查依赖: pip install gin-config torch torchaudio transformers")
             else:
                 logger.error(f"🔧 可能的问题:")
-                logger.error(f"   1. 质量阈值设置过高")
+                logger.error(f"   1. 质量阈值设置过高") 
                 logger.error(f"   2. 音频质量确实较差")
                 logger.error(f"   3. 模型加载或推理问题")
+                logger.error(f"   4. 显存不足导致模型初始化失败")
+        
+        # 最终清理
+        logger.info("🧹 批量评估完成，进行最终显存清理...")
+        self._aggressive_memory_cleanup()
         
         return results
     

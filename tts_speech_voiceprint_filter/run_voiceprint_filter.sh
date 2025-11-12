@@ -27,12 +27,12 @@ WAV_SCP_DEFAULT=(
   "/root/group-shared/voiceprint/data/speech/speaker_verification/King-ASR-EN-Kid_integrated_by_groundtruth/kaldi_files/wav.scp"
   "/root/group-shared/voiceprint/data/speech/speaker_verification/speechocean762_integrated_by_groundtruth/kaldi_files/wav.scp"
 )
-RESULTS_DIR_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_voiceprint_filter_addvad/results"
-LOGS_DIR_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_voiceprint_filter_addvad/logs"
-THRESHOLD_DEFAULT="0.70"
-NUM_WORKERS_DEFAULT="4"
+RESULTS_DIR_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_voiceprint_filter_dualsim/results"
+LOGS_DIR_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_voiceprint_filter_dualsim/logs"
+THRESHOLD_DEFAULT="0.65"
+NUM_WORKERS_DEFAULT="8"
 MODEL_DIR_DEFAULT="/root/code/gitlab_repos/speakeridentify/InterUttVerify/Multilingual/samresnet100"
-NUM_GPUS_DEFAULT="4"
+NUM_GPUS_DEFAULT="8"
 
 MAPPING_DIR="$MAPPING_DIR_DEFAULT"
 TTS_ZERO_SHOT="$TTS_ZERO_SHOT_DEFAULT"

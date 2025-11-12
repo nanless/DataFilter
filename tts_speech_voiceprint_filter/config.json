@@ -2,7 +2,7 @@
   "model": {
     "model_dir": "/root/code/gitlab_repos/speakeridentify/InterUttVerify/Multilingual/samresnet100"
   },
-  "threshold": 0.9,
+  "threshold": 0.65,
   "io": {
     "mapping_dir": "/root/group-shared/voiceprint/share/voiceclone_child_20251022",
     "tts_zero_shot": "/root/group-shared/speech_data/tts/cosyvoice2/voiceprint_enhance/20251015/test/models_batchsize16_with_voiceprint_diff-spkemb_1015-nonstream_1022/zero_shot",
@@ -16,8 +16,8 @@
     "logs_dir": "/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_voiceprint_filter/logs"
   },
   "runtime": {
-    "num_workers": 2,
-    "num_gpus": 2,
+    "num_workers": 8,
+    "num_gpus": 8,
     "use_ten_vad": true,
     "debug": {
       "enabled": false,

@@ -2,10 +2,10 @@
   "model": {
     "model_dir": "/root/code/gitlab_repos/speakeridentify/InterUttVerify/Multilingual/samresnet100"
   },
-  "threshold": 0.9,
+  "threshold": 0.65,
   "runtime": {
-    "num_workers": 2,
-    "num_gpus": 2,
+    "num_workers": 8,
+    "num_gpus": 8,
     "prompt_flow": {
       "root_dir": "/root/group-shared/voiceprint/share/voiceclone_child_20250804",
       "results_dir": "/root/group-shared/voiceprint/share/voiceclone_child_20250804/tts_prompt_clone_similarity/results",

@@ -276,90 +276,154 @@ def process_pair(pair: Tuple[str, str, str, str],
                  vad_max_silence_ms: int,
                  array_only: bool) -> Dict:
     src_path, tts_path, vp_id, prompt_id = pair
-    # 使用 TEN VAD 仅在VAD active片段上计算相似度（若可用）
-    sr_target = 16000
-    src_audio, _ = _load_audio_mono(src_path, sr_target)
-    tts_audio, _ = _load_audio_mono(tts_path, sr_target)
+    
+    try:
+        # 使用 TEN VAD 仅在VAD active片段上计算相似度（若可用）
+        sr_target = 16000
+        src_audio, _ = _load_audio_mono(src_path, sr_target)
+        tts_audio, _ = _load_audio_mono(tts_path, sr_target)
 
-    if TEN_VAD_AVAILABLE:
-        src_mask = _apply_ten_vad_refined(src_audio, sr_target,
-                                          frame_ms=vad_frame_ms,
-                                          vad_min_speech_ms=vad_min_speech_ms,
-                                          vad_max_silence_ms=vad_max_silence_ms)
-        tts_mask = _apply_ten_vad_refined(tts_audio, sr_target,
-                                          frame_ms=vad_frame_ms,
-                                          vad_min_speech_ms=vad_min_speech_ms,
-                                          vad_max_silence_ms=vad_max_silence_ms)
-        src_active = src_audio[src_mask > 0.5]
-        tts_active = tts_audio[tts_mask > 0.5]
-        min_len = int(0.2 * sr_target)  # 至少200ms
-        if src_active.size >= min_len and tts_active.size >= min_len:
-            src_audio_use = src_active.astype(np.float32)
-            tts_audio_use = tts_active.astype(np.float32)
+        # 最小音频长度检查（至少需要 500 样本 ≈ 31ms @ 16kHz，fbank window_size=400）
+        min_audio_len = 500
+        if src_audio.size < min_audio_len or tts_audio.size < min_audio_len:
+            return {
+                "voiceprint_id": vp_id,
+                "prompt_id": prompt_id,
+                "source_path": src_path,
+                "tts_path": tts_path,
+                "similarity": 0.0,
+                "similarity_original": 0.0,
+                "similarity_vad": 0.0,
+                "success": False,
+                "error_message": f"Audio too short: src={src_audio.size} tts={tts_audio.size} samples (min={min_audio_len})",
+                "vad": {"used": False},
+                "debug_plots": {},
+                "durations_sec": {
+                    "src_total": float(len(src_audio) / 16000.0),
+                    "tts_total": float(len(tts_audio) / 16000.0),
+                    "src_used": 0.0,
+                    "tts_used": 0.0
+                }
+            }
+
+        if TEN_VAD_AVAILABLE:
+            src_mask = _apply_ten_vad_refined(src_audio, sr_target,
+                                              frame_ms=vad_frame_ms,
+                                              vad_min_speech_ms=vad_min_speech_ms,
+                                              vad_max_silence_ms=vad_max_silence_ms)
+            tts_mask = _apply_ten_vad_refined(tts_audio, sr_target,
+                                              frame_ms=vad_frame_ms,
+                                              vad_min_speech_ms=vad_min_speech_ms,
+                                              vad_max_silence_ms=vad_max_silence_ms)
+            src_active = src_audio[src_mask > 0.5]
+            tts_active = tts_audio[tts_mask > 0.5]
+            min_len = int(0.2 * sr_target)  # 至少200ms
+            if src_active.size >= min_len and tts_active.size >= min_len:
+                src_audio_use = src_active.astype(np.float32)
+                tts_audio_use = tts_active.astype(np.float32)
+            else:
+                src_audio_use = src_audio
+                tts_audio_use = tts_audio
         else:
             src_audio_use = src_audio
             tts_audio_use = tts_audio
-    else:
-        src_audio_use = src_audio
-        tts_audio_use = tts_audio
 
-    # 直接使用数组提取embedding（不落盘）
-    src_emb = verifier.extract_embedding_array(src_audio_use, sr_target)  # type: ignore
-    tts_emb = verifier.extract_embedding_array(tts_audio_use, sr_target)  # type: ignore
+        # 计算第一个相似度：在原始音频上（不经过VAD）
+        src_emb_original = verifier.extract_embedding_array(src_audio, sr_target)  # type: ignore
+        tts_emb_original = verifier.extract_embedding_array(tts_audio, sr_target)  # type: ignore
+        sim_original = verifier.compute_similarity(src_emb_original, tts_emb_original)
 
-    sim = verifier.compute_similarity(src_emb, tts_emb)
-    # 保存 VAD 结果（仅占比与参数，不落盘掩码）
-    vad_info = {}
-    plot_paths: Dict[str, str] = {}
-    segments_src: List[List[float]] = []
-    segments_tts: List[List[float]] = []
-    if TEN_VAD_AVAILABLE:
-        src_ratio = float(np.mean((src_mask > 0.5).astype(np.float32))) if src_audio.size > 0 else 0.0
-        tts_ratio = float(np.mean((tts_mask > 0.5).astype(np.float32))) if tts_audio.size > 0 else 0.0
-        segments_src = _mask_to_segments(src_mask, sr_target)
-        segments_tts = _mask_to_segments(tts_mask, sr_target)
-        vad_info = {
-            "used": True,
-            "frame_ms": int(vad_frame_ms),
-            "min_speech_ms": int(vad_min_speech_ms),
-            "max_silence_ms": int(vad_max_silence_ms),
-            "src_active_ratio": src_ratio,
-            "tts_active_ratio": tts_ratio,
-            "src_segments_sec": segments_src,
-            "tts_segments_sec": segments_tts
+        # VAD 后再次检查长度（防止 VAD 后为空）
+        sim_vad = None
+        if src_audio_use.size < min_audio_len or tts_audio_use.size < min_audio_len:
+            # VAD后音频过短，但原始相似度已计算
+            sim_vad = 0.0
+            logger.debug(f"VAD后音频过短 [{vp_id}/{prompt_id}]: src={src_audio_use.size} tts={tts_audio_use.size}")
+        else:
+            # 计算第二个相似度：在VAD处理后的音频上
+            src_emb_vad = verifier.extract_embedding_array(src_audio_use, sr_target)  # type: ignore
+            tts_emb_vad = verifier.extract_embedding_array(tts_audio_use, sr_target)  # type: ignore
+            sim_vad = verifier.compute_similarity(src_emb_vad, tts_emb_vad)
+
+        # 兼容旧接口：默认使用VAD后的相似度（如果可用），否则使用原始相似度
+        sim = sim_vad if (sim_vad is not None and TEN_VAD_AVAILABLE) else sim_original
+        
+        # 保存 VAD 结果（仅占比与参数，不落盘掩码）
+        vad_info = {}
+        plot_paths: Dict[str, str] = {}
+        segments_src: List[List[float]] = []
+        segments_tts: List[List[float]] = []
+        if TEN_VAD_AVAILABLE:
+            src_ratio = float(np.mean((src_mask > 0.5).astype(np.float32))) if src_audio.size > 0 else 0.0
+            tts_ratio = float(np.mean((tts_mask > 0.5).astype(np.float32))) if tts_audio.size > 0 else 0.0
+            segments_src = _mask_to_segments(src_mask, sr_target)
+            segments_tts = _mask_to_segments(tts_mask, sr_target)
+            vad_info = {
+                "used": True,
+                "frame_ms": int(vad_frame_ms),
+                "min_speech_ms": int(vad_min_speech_ms),
+                "max_silence_ms": int(vad_max_silence_ms),
+                "src_active_ratio": src_ratio,
+                "tts_active_ratio": tts_ratio,
+                "src_segments_sec": segments_src,
+                "tts_segments_sec": segments_tts
+            }
+        else:
+            vad_info = {"used": False}
+
+        # 调试模式：保存波形+VAD图
+        if save_vad_dir:
+            uid = uuid.uuid4().hex[:8]
+            base_name = f"{_sanitize_for_filename(prompt_id)}__{_sanitize_for_filename(vp_id)}__{uid}"
+            src_fig = os.path.join(save_vad_dir, f"{base_name}_src.png")
+            tts_fig = os.path.join(save_vad_dir, f"{base_name}_tts.png")
+            _save_vad_plot(src_audio, (src_mask if TEN_VAD_AVAILABLE else np.ones_like(src_audio, dtype=np.float32)),
+                           sr_target, src_fig, f"SRC {prompt_id} | {vp_id}")
+            _save_vad_plot(tts_audio, (tts_mask if TEN_VAD_AVAILABLE else np.ones_like(tts_audio, dtype=np.float32)),
+                           sr_target, tts_fig, f"TTS {prompt_id} | {vp_id}")
+            plot_paths = {"src_plot": src_fig, "tts_plot": tts_fig}
+
+        return {
+            "voiceprint_id": vp_id,
+            "prompt_id": prompt_id,
+            "source_path": src_path,
+            "tts_path": tts_path,
+            "similarity": sim,  # 兼容旧接口：默认相似度
+            "similarity_original": sim_original,  # 新增：原始音频相似度
+            "similarity_vad": sim_vad,  # 新增：VAD后音频相似度
+            "success": True,
+            "error_message": "",
+            "vad": vad_info,
+            "debug_plots": plot_paths,
+            "durations_sec": {
+                "src_total": float(len(src_audio) / 16000.0),
+                "tts_total": float(len(tts_audio) / 16000.0),
+                "src_used": float(len(src_audio_use) / 16000.0),
+                "tts_used": float(len(tts_audio_use) / 16000.0)
+            }
         }
-    else:
-        vad_info = {"used": False}
-
-    # 调试模式：保存波形+VAD图
-    if save_vad_dir:
-        uid = uuid.uuid4().hex[:8]
-        base_name = f"{_sanitize_for_filename(prompt_id)}__{_sanitize_for_filename(vp_id)}__{uid}"
-        src_fig = os.path.join(save_vad_dir, f"{base_name}_src.png")
-        tts_fig = os.path.join(save_vad_dir, f"{base_name}_tts.png")
-        _save_vad_plot(src_audio, (src_mask if TEN_VAD_AVAILABLE else np.ones_like(src_audio, dtype=np.float32)),
-                       sr_target, src_fig, f"SRC {prompt_id} | {vp_id}")
-        _save_vad_plot(tts_audio, (tts_mask if TEN_VAD_AVAILABLE else np.ones_like(tts_audio, dtype=np.float32)),
-                       sr_target, tts_fig, f"TTS {prompt_id} | {vp_id}")
-        plot_paths = {"src_plot": src_fig, "tts_plot": tts_fig}
-
-    return {
-        "voiceprint_id": vp_id,
-        "prompt_id": prompt_id,
-        "source_path": src_path,
-        "tts_path": tts_path,
-        "similarity": sim,
-        "success": True,
-        "error_message": "",
-        "vad": vad_info,
-        "debug_plots": plot_paths,
-        "durations_sec": {
-            "src_total": float(len(src_audio) / 16000.0),
-            "tts_total": float(len(tts_audio) / 16000.0),
-            "src_used": float(len(src_audio_use) / 16000.0),
-            "tts_used": float(len(tts_audio_use) / 16000.0)
+    except Exception as e:
+        # 捕获任何异常，返回失败结果
+        logger.error(f"处理音频对失败 [{vp_id}/{prompt_id}]: {e}")
+        return {
+            "voiceprint_id": vp_id,
+            "prompt_id": prompt_id,
+            "source_path": src_path,
+            "tts_path": tts_path,
+            "similarity": 0.0,
+            "similarity_original": 0.0,
+            "similarity_vad": 0.0,
+            "success": False,
+            "error_message": str(e),
+            "vad": {"used": False},
+            "debug_plots": {},
+            "durations_sec": {
+                "src_total": 0.0,
+                "tts_total": 0.0,
+                "src_used": 0.0,
+                "tts_used": 0.0
+            }
         }
-    }
 
 def _load_audio_mono(path: str, target_sr: int = 16000) -> Tuple[np.ndarray, int]:
     """加载为单通道float32，并重采样到 target_sr。"""
@@ -487,6 +551,9 @@ def aggregate_and_save(results: List[Dict],
                        output_path: str,
                        meta: Dict):
     sims = [r["similarity"] for r in results if r["success"]]
+    sims_original = [r["similarity_original"] for r in results if r["success"] and "similarity_original" in r]
+    sims_vad = [r["similarity_vad"] for r in results if r["success"] and "similarity_vad" in r and r["similarity_vad"] is not None]
+    
     passed = [r for r in results if r["success"] and r["similarity"] >= threshold]
     failed = [r for r in results if r["success"] and r["similarity"] < threshold]
     errors = [r for r in results if not r["success"]]
@@ -506,6 +573,22 @@ def aggregate_and_save(results: List[Dict],
             "std": float(np.std(sims)),
             "min": float(np.min(sims)),
             "max": float(np.max(sims)),
+        }
+    if sims_original:
+        stats["similarity_original_stats"] = {
+            "mean": float(np.mean(sims_original)),
+            "median": float(np.median(sims_original)),
+            "std": float(np.std(sims_original)),
+            "min": float(np.min(sims_original)),
+            "max": float(np.max(sims_original)),
+        }
+    if sims_vad:
+        stats["similarity_vad_stats"] = {
+            "mean": float(np.mean(sims_vad)),
+            "median": float(np.median(sims_vad)),
+            "std": float(np.std(sims_vad)),
+            "min": float(np.min(sims_vad)),
+            "max": float(np.max(sims_vad)),
         }
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)

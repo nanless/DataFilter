@@ -15,14 +15,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_JSON="$SCRIPT_DIR/config.json"
 
 # 默认配置（仅保留 Prompt-vs-Clone 新流程）
-THRESHOLD_DEFAULT="0.70"
-NUM_WORKERS_DEFAULT="4"
+THRESHOLD_DEFAULT="0.65"
+NUM_WORKERS_DEFAULT="8"
 MODEL_DIR_DEFAULT="/root/code/gitlab_repos/speakeridentify/InterUttVerify/Multilingual/samresnet100"
-NUM_GPUS_DEFAULT="4"
+NUM_GPUS_DEFAULT="8"
 
 PROMPT_ROOT_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20250804"
-PROMPT_RESULTS_DIR_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20250804/tts_prompt_clone_similarity/results"
-PROMPT_LOGS_DIR_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20250804/tts_prompt_clone_similarity/logs"
+PROMPT_RESULTS_DIR_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20250804/tts_prompt_clone_similarity_dualsim/results"
+PROMPT_LOGS_DIR_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20250804/tts_prompt_clone_similarity_dualsim/logs"
 # 可选：用于定位 prompt 的 Kaldi wav.scp 默认集合
 WAV_SCP_DEFAULT=(
   "/root/group-shared/voiceprint/data/speech/speaker_verification/Chinese_English_Scripted_Speech_Corpus_Children_integrated_by_groundtruth/kaldi_files/wav.scp"

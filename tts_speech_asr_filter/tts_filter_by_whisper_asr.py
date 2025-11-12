@@ -417,6 +417,47 @@ class TTSFilterProcessor:
         
         return all_results
 
+    def process_sample_tasks(self, sample_tasks: List[Tuple[str, str, str, str]], subset_id: int) -> List[Dict]:
+        """按样本级任务处理（每个元素代表一个音频样本）
+        
+        sample_tasks: List[(audio_path, voiceprint_id, groundtruth_text, prompt_id)]
+        """
+        logger.info(f"GPU {self.actual_gpu_id}: 开始处理样本子集 {subset_id}，共 {len(sample_tasks)} 个样本 (语言: {self.language})")
+        
+        all_results: List[Dict] = []
+        skipped_in_subset = 0
+        
+        for idx, (audio_path, voiceprint_id, groundtruth_text, prompt_id) in enumerate(
+            tqdm(sample_tasks, desc=f"GPU {self.actual_gpu_id}: 样本子集{subset_id}"), start=1
+        ):
+            if self.processed_audio_paths and audio_path in self.processed_audio_paths:
+                logger.info(f"\n[{idx}/{len(sample_tasks)}] 跳过已处理的音频: {os.path.basename(audio_path)}")
+                self.stats['skipped_files'] += 1
+                skipped_in_subset += 1
+                continue
+            
+            logger.info(f"\n[{idx}/{len(sample_tasks)}] 处理进度 (语言: {self.language})")
+            result = self.process_single_audio(audio_path, groundtruth_text, voiceprint_id, prompt_id)
+            all_results.append(result)
+            
+            self.stats['total_files'] += 1
+            if result['success']:
+                self.stats['processed_files'] += 1
+                if result['passed']:
+                    self.stats['passed_files'] += 1
+                else:
+                    self.stats['filtered_files'] += 1
+            else:
+                self.stats['failed_files'] += 1
+        
+        logger.info(f"\n样本子集 {subset_id} 处理完成 (语言: {self.language})")
+        logger.info(f"  新处理: {len(all_results)}, 跳过: {skipped_in_subset}, "
+                    f"通过: {sum(1 for r in all_results if r.get('passed'))}, "
+                    f"筛除: {sum(1 for r in all_results if r.get('success') and not r.get('passed'))}")
+        logger.info("=" * 80)
+        
+        return all_results
+
 def load_json_data(json_path: str) -> Dict[str, List[Tuple[str, str]]]:
     """加载JSON数据并解析"""
     logger.info(f"加载JSON文件: {json_path}")
@@ -500,6 +541,32 @@ def prepare_data_for_processing(base_dir: str, json_data: Dict) -> List[Tuple[st
     
     return data_list
 
+def build_sample_task_list(base_dir: str, json_data: Dict[str, List[Tuple[str, str]]]) -> List[Tuple[str, str, str, str]]:
+    """将JSON展开为样本级任务列表
+    
+    返回的每个任务为 (audio_path, voiceprint_id, groundtruth_text, prompt_id)
+    """
+    zero_shot_dir = os.path.join(base_dir, "zero_shot")
+    
+    if not os.path.exists(zero_shot_dir):
+        logger.error(f"zero_shot目录不存在: {zero_shot_dir}")
+        return []
+    
+    sample_tasks: List[Tuple[str, str, str, str]] = []
+    
+    for prompt_id, voiceprint_texts in json_data.items():
+        prompt_dir = os.path.join(zero_shot_dir, prompt_id)
+        if not (os.path.exists(prompt_dir) and os.path.isdir(prompt_dir)):
+            logger.warning(f"Prompt目录不存在: {prompt_dir}")
+            continue
+        
+        for voiceprint_id, text in voiceprint_texts:
+            audio_filename = f"{voiceprint_id}.wav"
+            audio_path = os.path.join(prompt_dir, audio_filename)
+            sample_tasks.append((audio_path, voiceprint_id, text, prompt_id))
+    
+    return sample_tasks
+
 def split_data(data_list: List, num_splits: int) -> List[List]:
     """将数据分割成多个子集"""
     total_items = len(data_list)
@@ -536,8 +603,8 @@ def process_gpu_subset(args_tuple):
         modified_config['processed_audio_paths'] = processed_audio_paths  # 传递已处理的音频路径
         processor = TTSFilterProcessor(modified_config, gpu_id=0)  # 使用cuda:0
         
-        # 处理子集
-        results = processor.process_subset(subset_data, subset_id)
+        # 处理样本子集
+        results = processor.process_sample_tasks(subset_data, subset_id)
         
         return results, processor.stats
         
@@ -727,6 +794,10 @@ def main():
                        help="不跳过已存在的结果，强制重新处理")
     parser.add_argument("--force", action="store_true",
                        help="强制重新处理（等同于--no_skip_existing）")
+    parser.add_argument("--debug_mode", action="store_true",
+                       help="调试模式：限制样本数量并优先使用8卡（若可用）")
+    parser.add_argument("--debug_samples", type=int, default=1000,
+                       help="调试模式下处理的样本上限 (默认: 1000)")
     
     args = parser.parse_args()
     
@@ -748,6 +819,12 @@ def main():
     
     num_gpus = args.num_gpus if args.num_gpus else available_gpus
     num_gpus = min(num_gpus, available_gpus)
+    # 调试模式：优先使用8卡（若可用）
+    if args.debug_mode:
+        desired = min(8, available_gpus)
+        if num_gpus != desired:
+            logger.info(f"调试模式：将使用 {desired} 张GPU进行处理（原请求: {num_gpus}）")
+        num_gpus = desired
     
     logger.info(f"使用 {num_gpus} 张GPU进行处理")
     
@@ -826,23 +903,49 @@ def main():
         # 加载JSON数据
         json_data = load_json_data(args.json_file)
         
-        # 准备处理数据
-        data_list = prepare_data_for_processing(args.base_dir, json_data)
+        # 按样本级准备处理数据
+        all_sample_tasks = build_sample_task_list(args.base_dir, json_data)
         
-        if not data_list:
-            logger.error("没有找到可处理的数据")
+        if not all_sample_tasks:
+            logger.error("没有找到可处理的样本任务")
             return
         
-        # 测试模式：只处理前10个prompt
-        if args.test_mode:
-            original_count = len(data_list)
-            data_list = data_list[:10]
-            logger.info(f"测试模式：从 {original_count} 个prompt中只处理前 {len(data_list)} 个")
+        # 测试/调试模式限制样本数量
+        if args.debug_mode:
+            original_count = len(all_sample_tasks)
+            limit = max(1, int(args.debug_samples))
+            all_sample_tasks = all_sample_tasks[:limit]
+            logger.info(f"调试模式：限制处理样本数为 {limit}（原始 {original_count}）")
+        elif args.test_mode:
+            original_count = len(all_sample_tasks)
+            seen_prompts: Set[str] = set()
+            limited_tasks: List[Tuple[str, str, str, str]] = []
+            for task in all_sample_tasks:
+                pid = task[3]
+                if len(seen_prompts) < 10 or pid in seen_prompts:
+                    limited_tasks.append(task)
+                    seen_prompts.add(pid)
+            all_sample_tasks = limited_tasks
+            logger.info(f"测试模式：从 {original_count} 个样本中，只处理前10个prompt的样本，共 {len(all_sample_tasks)} 个")
         
-        logger.info(f"找到 {len(data_list)} 个prompt目录需要处理")
+        logger.info(f"找到 {len(all_sample_tasks)} 个样本需要处理")
         
-        # 分割数据给多个GPU
-        data_splits = split_data(data_list, num_gpus)
+        # 增量模式：在主进程中过滤掉已处理样本，以实现样本级均衡分发
+        if processed_audio_paths:
+            before = len(all_sample_tasks)
+            all_sample_tasks = [t for t in all_sample_tasks if t[0] not in processed_audio_paths]
+            after = len(all_sample_tasks)
+            if before != after:
+                logger.info(f"增量模式：过滤掉已处理样本 {before - after} 个，剩余 {after} 个待处理样本")
+        
+        if not all_sample_tasks:
+            logger.info("没有新的样本需要处理，直接合并并保存现有统计")
+            merge_and_save_results([], [], output_path, args.base_dir, args.json_file,
+                                   existing_results, existing_stats)
+            return
+        
+        # 分割样本任务给多个GPU
+        data_splits = split_data(all_sample_tasks, num_gpus)
         
         # 准备多进程参数
         process_args = []

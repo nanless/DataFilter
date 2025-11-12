@@ -1,0 +1,612 @@
+{
+  "timestamp": "2025-11-12T12:21:36.249141",
+  "meta": {
+    "flow": "prompt_vs_clone",
+    "root_dir": "/root/group-shared/voiceprint/share/voiceclone_child_20250804",
+    "model_dir": "/root/code/gitlab_repos/speakeridentify/InterUttVerify/Multilingual/samresnet100",
+    "num_workers": 2,
+    "num_gpus": 0,
+    "duration_sec": 33.59084677696228,
+    "debug": {
+      "enabled": true,
+      "samples": 10,
+      "debug_dir": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug"
+    },
+    "vad": {
+      "frame_ms": 16,
+      "min_speech_ms": 160,
+      "max_silence_ms": 200
+    }
+  },
+  "statistics": {
+    "total_pairs": 10,
+    "processed_pairs": 10,
+    "failed_pairs": 0,
+    "passed_pairs": 0,
+    "filtered_pairs": 10,
+    "threshold": 0.7,
+    "similarity_stats": {
+      "mean": 0.5189854145050049,
+      "median": 0.5430698990821838,
+      "std": 0.0839827287500168,
+      "min": 0.3946384787559509,
+      "max": 0.6546722054481506
+    }
+  },
+  "filter_results": [
+    {
+      "voiceprint_id": "voiceprint_20250804_1486741",
+      "prompt_id": "King-ASR-725_043741211",
+      "source_path": "/root/group-shared/voiceprint/data/speech/speaker_verification/King-ASR-EN-Kid_integrated_by_groundtruth/King-ASR-725/DATA/CHANNEL0/WAVE/SPEAKER4374/SESSION1/043741211.WAV",
+      "tts_path": "/root/group-shared/voiceprint/share/voiceclone_child_20250804/voiceprint_20250804_part8_20250804/zero_shot/King-ASR-725_043741211/voiceprint_20250804_1486741.wav",
+      "similarity": 0.6546722054481506,
+      "success": true,
+      "error_message": "",
+      "vad": {
+        "used": true,
+        "frame_ms": 16,
+        "min_speech_ms": 160,
+        "max_silence_ms": 200,
+        "src_active_ratio": 0.5890704989433289,
+        "tts_active_ratio": 0.5040000081062317,
+        "src_segments_sec": [
+          [
+            0.816,
+            1.568
+          ],
+          [
+            1.776,
+            2.4
+          ],
+          [
+            3.072,
+            5.264
+          ]
+        ],
+        "tts_segments_sec": [
+          [
+            0.336,
+            0.896
+          ],
+          [
+            1.424,
+            2.032
+          ],
+          [
+            2.48,
+            2.928
+          ],
+          [
+            3.376,
+            3.776
+          ]
+        ]
+      },
+      "debug_plots": {
+        "src_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_043741211__voiceprint_20250804_1486741__2a6e0e29_src.png",
+        "tts_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_043741211__voiceprint_20250804_1486741__2a6e0e29_tts.png"
+      },
+      "durations_sec": {
+        "src_total": 6.057,
+        "tts_total": 4.0,
+        "src_used": 3.568,
+        "tts_used": 2.016
+      }
+    },
+    {
+      "voiceprint_id": "voiceprint_20250804_1102472",
+      "prompt_id": "King-ASR-725_032960005",
+      "source_path": "/root/group-shared/voiceprint/data/speech/speaker_verification/King-ASR-EN-Kid_integrated_by_groundtruth/King-ASR-725/DATA/CHANNEL0/WAVE/SPEAKER3296/SESSION0/032960005.WAV",
+      "tts_path": "/root/group-shared/voiceprint/share/voiceclone_child_20250804/voiceprint_20250804_part6_20250804/zero_shot/King-ASR-725_032960005/voiceprint_20250804_1102472.wav",
+      "similarity": 0.4367106854915619,
+      "success": true,
+      "error_message": "",
+      "vad": {
+        "used": true,
+        "frame_ms": 16,
+        "min_speech_ms": 160,
+        "max_silence_ms": 200,
+        "src_active_ratio": 0.4449847936630249,
+        "tts_active_ratio": 0.7006369233131409,
+        "src_segments_sec": [
+          [
+            0.832,
+            1.36
+          ],
+          [
+            1.792,
+            2.272
+          ],
+          [
+            2.688,
+            3.232
+          ],
+          [
+            3.648,
+            4.16
+          ],
+          [
+            4.576,
+            5.04
+          ],
+          [
+            5.44,
+            5.84
+          ]
+        ],
+        "tts_segments_sec": [
+          [
+            0.64,
+            4.112
+          ],
+          [
+            4.608,
+            5.536
+          ]
+        ]
+      },
+      "debug_plots": {
+        "src_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_032960005__voiceprint_20250804_1102472__1f9355f3_src.png",
+        "tts_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_032960005__voiceprint_20250804_1102472__1f9355f3_tts.png"
+      },
+      "durations_sec": {
+        "src_total": 6.58,
+        "tts_total": 6.28,
+        "src_used": 2.928,
+        "tts_used": 4.4
+      }
+    },
+    {
+      "voiceprint_id": "voiceprint_20250804_1654424",
+      "prompt_id": "King-ASR-725_050621202",
+      "source_path": "/root/group-shared/voiceprint/data/speech/speaker_verification/King-ASR-EN-Kid_integrated_by_groundtruth/King-ASR-725/DATA/CHANNEL0/WAVE/SPEAKER5062/SESSION1/050621202.WAV",
+      "tts_path": "/root/group-shared/voiceprint/share/voiceclone_child_20250804/voiceprint_20250804_part9_20250804/zero_shot/King-ASR-725_050621202/voiceprint_20250804_1654424.wav",
+      "similarity": 0.5837610960006714,
+      "success": true,
+      "error_message": "",
+      "vad": {
+        "used": true,
+        "frame_ms": 16,
+        "min_speech_ms": 160,
+        "max_silence_ms": 200,
+        "src_active_ratio": 0.588539719581604,
+        "tts_active_ratio": 0.5189873576164246,
+        "src_segments_sec": [
+          [
+            0.816,
+            1.904
+          ],
+          [
+            2.128,
+            2.592
+          ],
+          [
+            2.8,
+            3.28
+          ],
+          [
+            3.488,
+            4.64
+          ]
+        ],
+        "tts_segments_sec": [
+          [
+            0.304,
+            1.072
+          ],
+          [
+            1.312,
+            1.936
+          ],
+          [
+            2.4,
+            3.04
+          ],
+          [
+            3.504,
+            4.064
+          ],
+          [
+            4.848,
+            5.536
+          ]
+        ]
+      },
+      "debug_plots": {
+        "src_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_050621202__voiceprint_20250804_1654424__6f75a901_src.png",
+        "tts_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_050621202__voiceprint_20250804_1654424__6f75a901_tts.png"
+      },
+      "durations_sec": {
+        "src_total": 5.41,
+        "tts_total": 6.32,
+        "src_used": 3.184,
+        "tts_used": 3.28
+      }
+    },
+    {
+      "voiceprint_id": "voiceprint_20250804_1655824",
+      "prompt_id": "King-ASR-725_050630004",
+      "source_path": "/root/group-shared/voiceprint/data/speech/speaker_verification/King-ASR-EN-Kid_integrated_by_groundtruth/King-ASR-725/DATA/CHANNEL0/WAVE/SPEAKER5063/SESSION0/050630004.WAV",
+      "tts_path": "/root/group-shared/voiceprint/share/voiceclone_child_20250804/voiceprint_20250804_part9_20250804/zero_shot/King-ASR-725_050630004/voiceprint_20250804_1655824.wav",
+      "similarity": 0.5063099265098572,
+      "success": true,
+      "error_message": "",
+      "vad": {
+        "used": true,
+        "frame_ms": 16,
+        "min_speech_ms": 160,
+        "max_silence_ms": 200,
+        "src_active_ratio": 0.44155845046043396,
+        "tts_active_ratio": 0.448888897895813,
+        "src_segments_sec": [
+          [
+            0.816,
+            1.488
+          ],
+          [
+            2.208,
+            2.88
+          ],
+          [
+            3.52,
+            4.16
+          ],
+          [
+            4.864,
+            5.552
+          ],
+          [
+            6.304,
+            7.056
+          ],
+          [
+            7.776,
+            8.432
+          ]
+        ],
+        "tts_segments_sec": [
+          [
+            0.064,
+            0.656
+          ],
+          [
+            1.344,
+            1.952
+          ],
+          [
+            2.608,
+            3.392
+          ],
+          [
+            4.192,
+            4.88
+          ],
+          [
+            5.808,
+            6.368
+          ]
+        ]
+      },
+      "debug_plots": {
+        "src_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_050630004__voiceprint_20250804_1655824__a414295b_src.png",
+        "tts_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_050630004__voiceprint_20250804_1655824__a414295b_tts.png"
+      },
+      "durations_sec": {
+        "src_total": 9.24,
+        "tts_total": 7.2,
+        "src_used": 4.08,
+        "tts_used": 3.232
+      }
+    },
+    {
+      "voiceprint_id": "voiceprint_20250804_0972042",
+      "prompt_id": "King-ASR-725_031551204",
+      "source_path": "/root/group-shared/voiceprint/data/speech/speaker_verification/King-ASR-EN-Kid_integrated_by_groundtruth/King-ASR-725/DATA/CHANNEL0/WAVE/SPEAKER3155/SESSION1/031551204.WAV",
+      "tts_path": "/root/group-shared/voiceprint/share/voiceclone_child_20250804/voiceprint_20250804_part5_20250804/zero_shot/King-ASR-725_031551204/voiceprint_20250804_0972042.wav",
+      "similarity": 0.5808389186859131,
+      "success": true,
+      "error_message": "",
+      "vad": {
+        "used": true,
+        "frame_ms": 16,
+        "min_speech_ms": 160,
+        "max_silence_ms": 200,
+        "src_active_ratio": 0.4609137177467346,
+        "tts_active_ratio": 0.6200000047683716,
+        "src_segments_sec": [
+          [
+            0.8,
+            1.552
+          ],
+          [
+            1.968,
+            2.544
+          ],
+          [
+            3.008,
+            3.584
+          ],
+          [
+            4.272,
+            4.864
+          ],
+          [
+            5.376,
+            5.952
+          ],
+          [
+            6.576,
+            7.136
+          ]
+        ],
+        "tts_segments_sec": [
+          [
+            0.08,
+            0.88
+          ],
+          [
+            1.136,
+            2.32
+          ]
+        ]
+      },
+      "debug_plots": {
+        "src_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_031551204__voiceprint_20250804_0972042__41e33e83_src.png",
+        "tts_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_031551204__voiceprint_20250804_0972042__41e33e83_tts.png"
+      },
+      "durations_sec": {
+        "src_total": 7.88,
+        "tts_total": 3.2,
+        "src_used": 3.632,
+        "tts_used": 1.984
+      }
+    },
+    {
+      "voiceprint_id": "voiceprint_20250804_0053301",
+      "prompt_id": "044_5_M_L_NANJING_iPhone_013",
+      "source_path": "/root/group-shared/voiceprint/data/speech/speaker_verification/BAAI-ChildMandarin41.25H_integrated_by_groundtruth/train/train-0001/044/044_5_M_L_NANJING_iPhone_013.wav",
+      "tts_path": "/root/group-shared/voiceprint/share/voiceclone_child_20250804/voiceprint_20250804_part1_20250804/zero_shot/044_5_M_L_NANJING_iPhone_013/voiceprint_20250804_0053301.wav",
+      "similarity": 0.5814949870109558,
+      "success": true,
+      "error_message": "",
+      "vad": {
+        "used": true,
+        "frame_ms": 16,
+        "min_speech_ms": 160,
+        "max_silence_ms": 200,
+        "src_active_ratio": 0.5617701411247253,
+        "tts_active_ratio": 0.625,
+        "src_segments_sec": [
+          [
+            0.576,
+            1.92
+          ]
+        ],
+        "tts_segments_sec": [
+          [
+            0.256,
+            0.672
+          ],
+          [
+            0.896,
+            2.4
+          ],
+          [
+            2.896,
+            3.696
+          ],
+          [
+            4.928,
+            6.608
+          ]
+        ]
+      },
+      "debug_plots": {
+        "src_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/044_5_M_L_NANJING_iPhone_013__voiceprint_20250804_0053301__e2c4a4ea_src.png",
+        "tts_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/044_5_M_L_NANJING_iPhone_013__voiceprint_20250804_0053301__e2c4a4ea_tts.png"
+      },
+      "durations_sec": {
+        "src_total": 2.3924375,
+        "tts_total": 7.04,
+        "src_used": 1.344,
+        "tts_used": 4.4
+      }
+    },
+    {
+      "voiceprint_id": "voiceprint_20250804_1641052",
+      "prompt_id": "King-ASR-725_050430004",
+      "source_path": "/root/group-shared/voiceprint/data/speech/speaker_verification/King-ASR-EN-Kid_integrated_by_groundtruth/King-ASR-725/DATA/CHANNEL0/WAVE/SPEAKER5043/SESSION0/050430004.WAV",
+      "tts_path": "/root/group-shared/voiceprint/share/voiceclone_child_20250804/voiceprint_20250804_part9_20250804/zero_shot/King-ASR-725_050430004/voiceprint_20250804_1641052.wav",
+      "similarity": 0.5798298716545105,
+      "success": true,
+      "error_message": "",
+      "vad": {
+        "used": true,
+        "frame_ms": 16,
+        "min_speech_ms": 160,
+        "max_silence_ms": 200,
+        "src_active_ratio": 0.5604166388511658,
+        "tts_active_ratio": 0.5377777814865112,
+        "src_segments_sec": [
+          [
+            0.816,
+            1.52
+          ],
+          [
+            1.824,
+            2.576
+          ],
+          [
+            2.928,
+            3.536
+          ],
+          [
+            4.032,
+            4.96
+          ],
+          [
+            5.248,
+            5.904
+          ],
+          [
+            6.24,
+            6.896
+          ]
+        ],
+        "tts_segments_sec": [
+          [
+            0.272,
+            0.8
+          ],
+          [
+            1.136,
+            1.76
+          ],
+          [
+            2.224,
+            3.008
+          ]
+        ]
+      },
+      "debug_plots": {
+        "src_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_050430004__voiceprint_20250804_1641052__8fb6a557_src.png",
+        "tts_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_050430004__voiceprint_20250804_1641052__8fb6a557_tts.png"
+      },
+      "durations_sec": {
+        "src_total": 7.68,
+        "tts_total": 3.6,
+        "src_used": 4.304,
+        "tts_used": 1.936
+      }
+    },
+    {
+      "voiceprint_id": "voiceprint_20250804_1864200",
+      "prompt_id": "speechocean762_train_001310168",
+      "source_path": "/root/group-shared/voiceprint/data/speech/speaker_verification/speechocean762_integrated_by_groundtruth/WAVE/SPEAKER0131/001310168.WAV",
+      "tts_path": "/root/group-shared/voiceprint/share/voiceclone_child_20250804/voiceprint_20250804_part10_20250804/zero_shot/speechocean762_train_001310168/voiceprint_20250804_1864200.wav",
+      "similarity": 0.3946384787559509,
+      "success": true,
+      "error_message": "",
+      "vad": {
+        "used": true,
+        "frame_ms": 16,
+        "min_speech_ms": 160,
+        "max_silence_ms": 200,
+        "src_active_ratio": 0.479377418756485,
+        "tts_active_ratio": 0.8318840861320496,
+        "src_segments_sec": [
+          [
+            0.736,
+            1.968
+          ]
+        ],
+        "tts_segments_sec": [
+          [
+            0.032,
+            1.712
+          ],
+          [
+            2.192,
+            5.104
+          ]
+        ]
+      },
+      "debug_plots": {
+        "src_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/speechocean762_train_001310168__voiceprint_20250804_1864200__1eec61e5_src.png",
+        "tts_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/speechocean762_train_001310168__voiceprint_20250804_1864200__1eec61e5_tts.png"
+      },
+      "durations_sec": {
+        "src_total": 2.57,
+        "tts_total": 5.52,
+        "src_used": 1.232,
+        "tts_used": 4.592
+      }
+    },
+    {
+      "voiceprint_id": "voiceprint_20250804_1820709",
+      "prompt_id": "speechocean762_test_085840077",
+      "source_path": "/root/group-shared/voiceprint/data/speech/speaker_verification/speechocean762_integrated_by_groundtruth/WAVE/SPEAKER8584/085840077.WAV",
+      "tts_path": "/root/group-shared/voiceprint/share/voiceclone_child_20250804/voiceprint_20250804_part10_20250804/zero_shot/speechocean762_test_085840077/voiceprint_20250804_1820709.wav",
+      "similarity": 0.42446497082710266,
+      "success": true,
+      "error_message": "",
+      "vad": {
+        "used": true,
+        "frame_ms": 16,
+        "min_speech_ms": 160,
+        "max_silence_ms": 200,
+        "src_active_ratio": 0.6623698472976685,
+        "tts_active_ratio": 0.6472727060317993,
+        "src_segments_sec": [
+          [
+            0.848,
+            2.832
+          ],
+          [
+            3.12,
+            3.808
+          ]
+        ],
+        "tts_segments_sec": [
+          [
+            0.416,
+            1.84
+          ]
+        ]
+      },
+      "debug_plots": {
+        "src_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/speechocean762_test_085840077__voiceprint_20250804_1820709__08be75dd_src.png",
+        "tts_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/speechocean762_test_085840077__voiceprint_20250804_1820709__08be75dd_tts.png"
+      },
+      "durations_sec": {
+        "src_total": 4.034,
+        "tts_total": 2.2,
+        "src_used": 2.672,
+        "tts_used": 1.424
+      }
+    },
+    {
+      "voiceprint_id": "voiceprint_20250804_1603829",
+      "prompt_id": "King-ASR-725_050101202",
+      "source_path": "/root/group-shared/voiceprint/data/speech/speaker_verification/King-ASR-EN-Kid_integrated_by_groundtruth/King-ASR-725/DATA/CHANNEL0/WAVE/SPEAKER5010/SESSION1/050101202.WAV",
+      "tts_path": "/root/group-shared/voiceprint/share/voiceclone_child_20250804/voiceprint_20250804_part9_20250804/zero_shot/King-ASR-725_050101202/voiceprint_20250804_1603829.wav",
+      "similarity": 0.44713300466537476,
+      "success": true,
+      "error_message": "",
+      "vad": {
+        "used": true,
+        "frame_ms": 16,
+        "min_speech_ms": 160,
+        "max_silence_ms": 200,
+        "src_active_ratio": 0.6180095076560974,
+        "tts_active_ratio": 0.699999988079071,
+        "src_segments_sec": [
+          [
+            0.784,
+            3.392
+          ]
+        ],
+        "tts_segments_sec": [
+          [
+            0.464,
+            2.8
+          ],
+          [
+            3.104,
+            4.128
+          ]
+        ]
+      },
+      "debug_plots": {
+        "src_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_050101202__voiceprint_20250804_1603829__6f7ebab5_src.png",
+        "tts_plot": "/root/code/github_repos/DataFilter/tts_speech_voiceprint_filter_old/test_output/debug/King-ASR-725_050101202__voiceprint_20250804_1603829__6f7ebab5_tts.png"
+      },
+      "durations_sec": {
+        "src_total": 4.22,
+        "tts_total": 4.8,
+        "src_used": 2.608,
+        "tts_used": 3.36
+      }
+    }
+  ]
+}

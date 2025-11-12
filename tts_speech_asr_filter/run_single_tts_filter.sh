@@ -21,6 +21,8 @@ TEST_MODE=false
 VERBOSE=false
 SKIP_EXISTING=true
 FORCE_REPROCESS=false
+DEBUG_MODE=false
+DEBUG_SAMPLES=1000
 
 # 函数：显示使用帮助
 show_help() {
@@ -43,6 +45,8 @@ show_help() {
     echo "  --skip_existing 增量处理模式，跳过已处理的音频 (默认: 开启)"
     echo "  --no-skip_existing 不使用增量处理，重新处理所有音频"
     echo "  --force         强制重新处理所有音频（等同于--no-skip_existing）"
+    echo "  --debug_mode    调试模式：强制使用8卡并限制样本数量"
+    echo "  --debug_samples 调试模式下的样本数上限 (默认: $DEBUG_SAMPLES)"
     echo "  -h, --help      显示此帮助信息"
     echo ""
     echo "示例:"
@@ -114,6 +118,14 @@ while [[ $# -gt 0 ]]; do
             FORCE_REPROCESS=true
             shift
             ;;
+        --debug_mode)
+            DEBUG_MODE=true
+            shift
+            ;;
+        --debug_samples)
+            DEBUG_SAMPLES="$2"
+            shift 2
+            ;;
         -h|--help)
             show_help
             exit 0
@@ -167,6 +179,11 @@ if [ "$GPU_COUNT" -lt 1 ]; then
 fi
 
 # 调整GPU数量
+# 调试模式：强制使用8卡（若可用）
+if [ "$DEBUG_MODE" = true ]; then
+    echo -e "${YELLOW}调试模式：强制请求使用8卡${NC}"
+    NUM_GPUS=8
+fi
 if [ "$NUM_GPUS" -gt "$GPU_COUNT" ]; then
     echo -e "${YELLOW}警告: 请求的GPU数量($NUM_GPUS)超过可用数量($GPU_COUNT)，将使用所有可用GPU${NC}"
     NUM_GPUS=$GPU_COUNT
@@ -238,6 +255,11 @@ fi
 
 if [ "$TEST_MODE" = true ]; then
     PYTHON_CMD="$PYTHON_CMD --test_mode"
+fi
+
+# 调试模式参数
+if [ "$DEBUG_MODE" = true ]; then
+    PYTHON_CMD="$PYTHON_CMD --debug_mode --debug_samples $DEBUG_SAMPLES"
 fi
 
 if [ "$VERBOSE" = true ]; then

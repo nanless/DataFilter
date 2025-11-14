@@ -243,6 +243,61 @@ def _mask_to_segments(mask: np.ndarray, sr: int) -> List[List[float]]:
     return segments
 
 
+def _expand_segments(segments: List[List[float]], expand_sec: float, max_duration: float) -> List[List[float]]:
+    """
+    扩展区间并合并重叠部分
+    Args:
+        segments: 区间列表 [[start, end], ...]，单位秒
+        expand_sec: 向两边扩展的时长（秒）
+        max_duration: 最大时长限制（秒），防止越界
+    Returns:
+        扩展并合并后的区间列表
+    """
+    if not segments:
+        return []
+    
+    # 扩展每个区间
+    expanded = []
+    for s, e in segments:
+        new_s = max(0.0, s - expand_sec)
+        new_e = min(max_duration, e + expand_sec)
+        expanded.append([new_s, new_e])
+    
+    # 按起始时间排序
+    expanded.sort(key=lambda x: x[0])
+    
+    # 合并重叠区间
+    merged = [expanded[0]]
+    for s, e in expanded[1:]:
+        if s <= merged[-1][1]:  # 有重叠
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    
+    return merged
+
+
+def _segments_to_mask(segments: List[List[float]], sr: int, total_samples: int) -> np.ndarray:
+    """
+    从区间列表生成样本级掩码
+    Args:
+        segments: 区间列表 [[start, end], ...]，单位秒
+        sr: 采样率
+        total_samples: 总样本数
+    Returns:
+        样本级掩码数组
+    """
+    mask = np.zeros(total_samples, dtype=np.float32)
+    for s, e in segments:
+        start_idx = int(s * sr)
+        end_idx = int(e * sr)
+        start_idx = max(0, min(start_idx, total_samples))
+        end_idx = max(0, min(end_idx, total_samples))
+        if start_idx < end_idx:
+            mask[start_idx:end_idx] = 1.0
+    return mask
+
+
 def _save_vad_plot(audio: np.ndarray,
                    mask: np.ndarray,
                    sr: int,
@@ -307,14 +362,26 @@ def process_pair(pair: Tuple[str, str, str, str],
             }
 
         if TEN_VAD_AVAILABLE:
-            src_mask = _apply_ten_vad_refined(src_audio, sr_target,
-                                              frame_ms=vad_frame_ms,
-                                              vad_min_speech_ms=vad_min_speech_ms,
-                                              vad_max_silence_ms=vad_max_silence_ms)
-            tts_mask = _apply_ten_vad_refined(tts_audio, sr_target,
-                                              frame_ms=vad_frame_ms,
-                                              vad_min_speech_ms=vad_min_speech_ms,
-                                              vad_max_silence_ms=vad_max_silence_ms)
+            src_mask_raw = _apply_ten_vad_refined(src_audio, sr_target,
+                                                  frame_ms=vad_frame_ms,
+                                                  vad_min_speech_ms=vad_min_speech_ms,
+                                                  vad_max_silence_ms=vad_max_silence_ms)
+            tts_mask_raw = _apply_ten_vad_refined(tts_audio, sr_target,
+                                                  frame_ms=vad_frame_ms,
+                                                  vad_min_speech_ms=vad_min_speech_ms,
+                                                  vad_max_silence_ms=vad_max_silence_ms)
+            
+            # 将掩码转换为区间，扩展150ms，再转回掩码
+            expand_sec = 0.15  # 150ms
+            src_segments = _mask_to_segments(src_mask_raw, sr_target)
+            tts_segments = _mask_to_segments(tts_mask_raw, sr_target)
+            
+            src_segments_expanded = _expand_segments(src_segments, expand_sec, len(src_audio) / sr_target)
+            tts_segments_expanded = _expand_segments(tts_segments, expand_sec, len(tts_audio) / sr_target)
+            
+            src_mask = _segments_to_mask(src_segments_expanded, sr_target, len(src_audio))
+            tts_mask = _segments_to_mask(tts_segments_expanded, sr_target, len(tts_audio))
+            
             src_active = src_audio[src_mask > 0.5]
             tts_active = tts_audio[tts_mask > 0.5]
             min_len = int(0.2 * sr_target)  # 至少200ms

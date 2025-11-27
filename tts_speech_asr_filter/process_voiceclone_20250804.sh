@@ -5,7 +5,7 @@
 # 功能：
 # 1) 检查 /root/group-shared/voiceprint/share/voiceclone_child_20250804 下的所有 JSON 文件
 # 2) 对每个 JSON 对应的音频目录执行 ASR 识别和 CER 计算
-# 3) 自动选择 Whisper+LLM 模式（如果 LLM 不可用则回退为 Kimi 模式）
+# 3) 默认使用 SenseVoice+NeMo TN 模式（可手动指定其他模式）
 #
 # 使用：
 #   bash process_voiceclone_20250804.sh [选项]
@@ -15,7 +15,9 @@
 #   --language auto|zh|en         语言（默认 auto）
 #   --use_whisper                 强制使用 Whisper+LLM 模式
 #   --no-use_whisper              强制使用 Kimi 模式
+#   --use_sensevoice              强制使用 SenseVoice Small+NeMo TN 模式
 #   --whisper_model <model>       Whisper 模型（默认 large-v3）
+#   --sensevoice_model_dir <dir>  SenseVoice 模型路径或ID（默认 iic/SenseVoiceSmall）
 #   --process_parts <parts>       指定处理哪些 part，如 "1,2,5" 或 "all"（默认 all）
 #   --merge                       是否先合并所有 JSON 再统一处理（默认分别处理）
 #   --test_mode                   测试模式（只处理少量数据）
@@ -33,8 +35,8 @@ NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DATA_DIR="/root/group-shared/voiceprint/share/voiceclone_child_20250804"
-RESULTS_DIR="$DATA_DIR/tts_asr_filter/results"
-LOG_DIR="$DATA_DIR/tts_asr_filter/logs"
+RESULTS_DIR="$DATA_DIR/tts_asr_filter_sensevoice/results"
+LOG_DIR="$DATA_DIR/tts_asr_filter_sensevoice/logs"
 
 mkdir -p "$RESULTS_DIR" "$LOG_DIR"
 
@@ -54,6 +56,7 @@ fi
 PROCESS_PARTS="all"
 MERGE_MODE=false
 USE_WHISPER_OPT=""
+USE_SENSEVOICE_OPT=""
 PASS_THROUGH_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -68,11 +71,19 @@ while [[ $# -gt 0 ]]; do
             ;;
         --use_whisper)
             USE_WHISPER_OPT="--use_whisper"
+            USE_SENSEVOICE_OPT=""
             PASS_THROUGH_ARGS+=("$1")
             shift
             ;;
         --no-use_whisper)
             USE_WHISPER_OPT="--no-use_whisper"
+            USE_SENSEVOICE_OPT=""
+            PASS_THROUGH_ARGS+=("$1")
+            shift
+            ;;
+        --use_sensevoice)
+            USE_SENSEVOICE_OPT="--use_sensevoice"
+            USE_WHISPER_OPT=""
             PASS_THROUGH_ARGS+=("$1")
             shift
             ;;
@@ -142,16 +153,11 @@ fi
 echo -e "${GREEN}将处理 ${#PARTS_TO_PROCESS[@]} 个 part: ${PARTS_TO_PROCESS[*]}${NC}"
 echo ""
 
-# 决定 ASR 模式
-if [ -z "$USE_WHISPER_OPT" ]; then
-    echo -e "${CYAN}检测 LLM 服务 (http://localhost:8000/health)...${NC}"
-    if curl -s --connect-timeout 3 http://localhost:8000/health >/dev/null 2>&1; then
-        echo -e "${GREEN}✓ 检测到 LLM 服务，使用 Whisper+LLM 模式${NC}"
-        USE_WHISPER_OPT="--use_whisper"
-    else
-        echo -e "${YELLOW}未检测到 LLM 服务，回退至 Kimi-Audio 模式${NC}"
-        USE_WHISPER_OPT="--no-use_whisper"
-    fi
+# 决定 ASR 模式（默认使用 SenseVoice+NeMo TN）
+if [ -z "$USE_WHISPER_OPT" ] && [ -z "$USE_SENSEVOICE_OPT" ]; then
+    echo -e "${CYAN}检测 ASR 模式（默认使用 SenseVoice+NeMo TN）...${NC}"
+    echo -e "${GREEN}✓ 默认使用 SenseVoice+NeMo TN 模式${NC}"
+    USE_SENSEVOICE_OPT="--use_sensevoice"
 fi
 echo ""
 
@@ -287,9 +293,15 @@ else
         cd "$SCRIPT_DIR"
         
         set +e
-        ./run_single_tts_filter.sh "$BASE_DIR" "$JSON_FILE" $USE_WHISPER_OPT \
-            --output "$OUTPUT_JSON" \
-            "${PASS_THROUGH_ARGS[@]}"
+        if [ -n "$USE_SENSEVOICE_OPT" ]; then
+            ./run_single_tts_filter.sh "$BASE_DIR" "$JSON_FILE" $USE_SENSEVOICE_OPT \
+                --output "$OUTPUT_JSON" \
+                "${PASS_THROUGH_ARGS[@]}"
+        else
+            ./run_single_tts_filter.sh "$BASE_DIR" "$JSON_FILE" $USE_WHISPER_OPT \
+                --output "$OUTPUT_JSON" \
+                "${PASS_THROUGH_ARGS[@]}"
+        fi
         RET=$?
         set -e
         

@@ -5,7 +5,7 @@
 # 功能：
 # 1) 合并 /root/group-shared/voiceprint/share/voiceclone_child_20251022 下所有 JSON 为一个总 JSON
 # 2) 对 /root/group-shared/speech_data/tts/cosyvoice2/voiceprint_enhance/20251015/test/models_batchsize16_with_voiceprint_diff-spkemb_1015-nonstream_1022/zero_shot
-#    下的音频执行筛选（自动选择 Whisper+LLM；如果 LLM 不可用则回退为 Kimi 模式）
+#    下的音频执行筛选（默认使用 SenseVoice+NeMo TN 模式）
 #
 # 使用：
 #   bash combine_and_filter.sh [选项]
@@ -13,13 +13,14 @@
 #   --cer_threshold <float>
 #   --num_gpus <int>
 #   --language auto|zh|en
-#   --use_whisper | --no-use_whisper
+#   --use_whisper | --no-use_whisper | --use_sensevoice
 #   --whisper_model <tiny|base|small|medium|large|large-v2|large-v3>
+#   --sensevoice_model_dir <dir>  SenseVoice 模型路径或ID（默认 iic/SenseVoiceSmall）
 #   --output </abs/path/to/output.json>
 #
 # 说明：
-# - 默认尝试 Whisper+LLM（检测 http://localhost:8000/health），失败后自动回退到 Kimi 模式
-# - 若明确指定 --no-use_whisper，则强制使用 Kimi 模式
+# - 默认使用 SenseVoice+NeMo TN 模式
+# - 若明确指定模式选项（--use_whisper 或 --no-use_whisper），则使用指定模式
 # - 可额外传入 run_single_tts_filter.sh 支持的其他参数（如 --test_mode、--verbose、--force 等）
 
 set -euo pipefail
@@ -32,8 +33,8 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-RESULTS_DIR="/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_asr_filter/results"
-LOG_DIR="/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_asr_filter/logs"
+RESULTS_DIR="/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_asr_filter_sensevoice/results"
+LOG_DIR="/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_asr_filter_sensevoice/logs"
 
 # 路径常量（根据需求可调整）
 JSON_SRC_DIR="/root/group-shared/voiceprint/share/voiceclone_child_20251022"
@@ -127,7 +128,8 @@ echo -e "${GREEN}✓ JSON合并完成: $COMBINED_JSON${NC}"
 echo ""
 
 # 2) 选择ASR模式并执行筛选
-USE_WHISPER_OPT="--use_whisper"
+USE_WHISPER_OPT=""
+USE_SENSEVOICE_OPT=""
 EXPLICIT_MODE=""
 
 # 若用户通过参数显式指定了模式，则遵从
@@ -136,21 +138,20 @@ for arg in "$@"; do
         EXPLICIT_MODE="kimi"
     elif [ "$arg" = "--use_whisper" ]; then
         EXPLICIT_MODE="whisper"
+    elif [ "$arg" = "--use_sensevoice" ]; then
+        EXPLICIT_MODE="sensevoice"
     fi
 done
 
 if [ -z "$EXPLICIT_MODE" ]; then
-    echo -e "${CYAN}检测LLM服务 (http://localhost:8000/health)...${NC}"
-    if curl -s --connect-timeout 3 http://localhost:8000/health >/dev/null 2>&1; then
-        echo -e "${GREEN}✓ 检测到LLM服务，使用 Whisper+LLM 模式${NC}"
-        USE_WHISPER_OPT="--use_whisper"
-    else
-        echo -e "${YELLOW}未检测到LLM服务，回退至 Kimi-Audio 模式${NC}"
-        USE_WHISPER_OPT="--no-use_whisper"
-    fi
+    echo -e "${CYAN}自动检测ASR模式（默认使用 SenseVoice+NeMo TN）...${NC}"
+    echo -e "${GREEN}✓ 默认使用 SenseVoice+NeMo TN 模式${NC}"
+    USE_SENSEVOICE_OPT="--use_sensevoice"
 else
     if [ "$EXPLICIT_MODE" = "whisper" ]; then
         USE_WHISPER_OPT="--use_whisper"
+    elif [ "$EXPLICIT_MODE" = "sensevoice" ]; then
+        USE_SENSEVOICE_OPT="--use_sensevoice"
     else
         USE_WHISPER_OPT="--no-use_whisper"
     fi
@@ -161,7 +162,11 @@ OUTPUT_PATH_DEFAULT="$RESULTS_DIR/tts_asr_filter_results_combined_voiceclone_chi
 echo -e "${CYAN}开始执行筛选...${NC}"
 echo -e "${YELLOW}BASE_DIR: $BASE_DIR${NC}"
 echo -e "${YELLOW}JSON_FILE: $COMBINED_JSON${NC}"
-echo -e "${YELLOW}模式: ${USE_WHISPER_OPT}${NC}"
+if [ -n "$USE_SENSEVOICE_OPT" ]; then
+    echo -e "${YELLOW}模式: ${USE_SENSEVOICE_OPT}${NC}"
+else
+    echo -e "${YELLOW}模式: ${USE_WHISPER_OPT}${NC}"
+fi
 echo ""
 
 cd "$SCRIPT_DIR"
@@ -173,7 +178,11 @@ if ! printf '%s\n' "${PASS_THROUGH_ARGS[@]}" | grep -q -- '--output'; then
 fi
 
 set +e
-./run_single_tts_filter.sh "$BASE_DIR" "$COMBINED_JSON" ${USE_WHISPER_OPT} "${PASS_THROUGH_ARGS[@]}"
+if [ -n "$USE_SENSEVOICE_OPT" ]; then
+    ./run_single_tts_filter.sh "$BASE_DIR" "$COMBINED_JSON" ${USE_SENSEVOICE_OPT} "${PASS_THROUGH_ARGS[@]}"
+else
+    ./run_single_tts_filter.sh "$BASE_DIR" "$COMBINED_JSON" ${USE_WHISPER_OPT} "${PASS_THROUGH_ARGS[@]}"
+fi
 RET=$?
 set -e
 

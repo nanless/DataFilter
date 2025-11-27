@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-基于Whisper ASR和NeMo文本标准化的TTS音频筛选脚本
+基于SenseVoice Small ASR和NeMo文本标准化的TTS音频筛选脚本
 
 根据语音识别结果与groundtruth文本的CER差异来筛选TTS合成音频
 CER > 阈值的音频将被标记为需要过滤
 
 文本标准化：
-- 英文：使用 NeMo 文本标准化（nemo_text_processing），然后简单标准化（去除标点、标准化空格）
+- 英文：使用 NeMo 文本标准化（nemo_text_processing）
 - 中文：使用简单标准化（去除标点、空格）
 """
 
@@ -18,6 +18,7 @@ import logging
 import argparse
 import numpy as np
 import soundfile as sf
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Set
 from datetime import datetime
@@ -28,12 +29,12 @@ import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 import time
 import shutil
-import whisper
-import re
 
-# 设置日志
+# 设置日志（需要在导入检查之前，以便可以使用 logger）
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# 注意：已移除 WeTextProcessing 依赖，现在使用 NeMo 文本标准化
 
 # 导入NeMo的文本标准化模块（用于英文TN）
 NEMO_AVAILABLE = False
@@ -63,81 +64,117 @@ except ImportError:
             NeMoNormalizer = None
             NEMO_AVAILABLE = False
 
-class WhisperProcessor:
-    """Whisper语音识别处理器"""
+# 导入FunASR的AutoModel
+try:
+    from funasr import AutoModel as FunasrAutoModel
+except ImportError:
+    logger.error("无法导入funasr，请安装: pip install funasr")
+    FunasrAutoModel = None
+
+class SenseVoiceProcessor:
+    """SenseVoice Small语音识别处理器"""
     
-    def __init__(self, model_size: str = "large-v3", device: str = "cuda:0", gpu_id: int = 0, 
-                 language: str = "auto", model_dir: str = None):
-        self.model_size = model_size
+    def __init__(self, model_dir: str = "iic/SenseVoiceSmall", device: str = "cuda:0", 
+                 gpu_id: int = 0, language: str = "auto"):
+        self.model_dir = model_dir
         self.device = device
         self.gpu_id = gpu_id
         self.language = language
         self.model = None
-        self.model_dir = model_dir or "/root/data/pretrained_models/whisper_modes"
         
-        logger.info(f"GPU {gpu_id}: 初始化Whisper处理器")
-        logger.info(f"  模型: whisper-{model_size}")
-        logger.info(f"  模型目录: {self.model_dir}")
+        logger.info(f"GPU {gpu_id}: 初始化SenseVoice处理器")
+        logger.info(f"  模型: {model_dir}")
         logger.info(f"  设备: {device}")
         logger.info(f"  语言: {language}")
     
     def load_model(self):
-        """加载Whisper模型"""
+        """加载SenseVoice模型"""
         if self.model is not None:
             return
         
+        if FunasrAutoModel is None:
+            raise RuntimeError("funasr库未安装，无法加载SenseVoice模型")
+        
         try:
-            logger.info(f"GPU {self.gpu_id}: 加载Whisper模型 {self.model_size}...")
-            logger.info(f"  从目录: {self.model_dir}")
+            logger.info(f"GPU {self.gpu_id}: 加载SenseVoice模型 {self.model_dir}...")
             
-            # 加载模型到指定设备，使用本地模型目录
-            self.model = whisper.load_model(
-                self.model_size, 
-                device=self.device,
-                download_root=self.model_dir
+            # 加载模型到指定设备
+            self.model = FunasrAutoModel(
+                model=self.model_dir,
+                trust_remote_code=True,
+                device=self.device
             )
             
-            logger.info(f"GPU {self.gpu_id}: ✓ 成功加载Whisper模型")
+            logger.info(f"GPU {self.gpu_id}: ✓ 成功加载SenseVoice模型")
             
         except Exception as e:
-            logger.error(f"GPU {self.gpu_id}: 加载Whisper模型失败: {e}")
+            logger.error(f"GPU {self.gpu_id}: 加载SenseVoice模型失败: {e}")
             raise
     
     def transcribe_audio(self, audio_path: str) -> str:
-        """使用Whisper进行语音识别"""
+        """使用SenseVoice进行语音识别"""
         try:
             # 确保模型已经加载
             if self.model is None:
                 self.load_model()
             
             # 根据语言设置决定参数
-            if self.language == "auto":
-                # 自动检测语言
-                logger.debug(f"GPU {self.gpu_id}: 使用Whisper自动语言检测")
-                result = self.model.transcribe(audio_path, task="transcribe")
-                detected_language = result.get("language", "unknown")
-                logger.info(f"GPU {self.gpu_id}: Whisper检测到语言: {detected_language}")
-            elif self.language == "zh":
-                # 指定中文
-                logger.info(f"GPU {self.gpu_id}: 使用Whisper中文模式 (language='zh')")
-                result = self.model.transcribe(audio_path, language="zh", task="transcribe")
+            language_param = None
+            if self.language == "zh":
+                language_param = "zh"
             elif self.language == "en":
-                # 指定英文
-                logger.info(f"GPU {self.gpu_id}: 使用Whisper英文模式 (language='en')")
-                result = self.model.transcribe(audio_path, language="en", task="transcribe")
+                language_param = "en"
+            # auto 模式使用 None，让模型自动检测
+            
+            logger.debug(f"GPU {self.gpu_id}: 使用SenseVoice进行语音识别 (语言: {self.language})")
+            
+            # 调用模型进行识别
+            result = self.model.generate(
+                input=audio_path,
+                cache={},
+                language=language_param if language_param else "auto",
+                use_itn=True,  # 不使用逆文本标准化，因为我们后面会用NeMo TN处理
+                batch_size=1,
+                disable_pbar=True
+            )
+            
+            # 处理返回结果
+            # SenseVoice返回格式可能是列表或字典
+            if isinstance(result, list):
+                if len(result) > 0:
+                    if isinstance(result[0], dict):
+                        text = result[0].get("text", "").strip()
+                    else:
+                        text = str(result[0]).strip()
+                else:
+                    text = ""
+            elif isinstance(result, dict):
+                text = result.get("text", "").strip()
             else:
-                # 其他语言
-                logger.info(f"GPU {self.gpu_id}: 使用Whisper {self.language}语言模式")
-                result = self.model.transcribe(audio_path, language=self.language, task="transcribe")
+                text = str(result).strip()
             
-            # 获取转录文本
-            text = result.get("text", "").strip()
-            
-            if not text:
-                logger.warning(f"GPU {self.gpu_id}: Whisper未能识别出文本")
+            # 处理特殊标记
+            if text and "|nospeech|" in text:
+                logger.warning(f"GPU {self.gpu_id}: SenseVoice检测到无语音内容")
                 return ""
             
-            logger.debug(f"GPU {self.gpu_id}: Whisper识别结果: {text}")
+            if not text:
+                logger.warning(f"GPU {self.gpu_id}: SenseVoice未能识别出文本")
+                return ""
+            
+            # 清理 SenseVoice 输出的标签（格式：<|tag|>）
+            # 例如：<|en|><|EMO_UNKNOWN|><|BGM|><|woitn|>text
+            original_text = text
+            # 匹配 <|...|> 格式的标签并移除
+            text = re.sub(r'<\|[^|]+\|>', '', text).strip()
+            
+            # 如果清理后文本为空，但原始文本不为空，记录警告
+            if not text and original_text:
+                logger.warning(f"GPU {self.gpu_id}: 清理标签后文本为空，使用原始文本")
+                text = original_text.strip()
+            
+            logger.debug(f"GPU {self.gpu_id}: SenseVoice识别结果（原始）: {original_text}")
+            logger.debug(f"GPU {self.gpu_id}: SenseVoice识别结果（清理后）: {text}")
             return text
             
         except Exception as e:
@@ -147,8 +184,9 @@ class WhisperProcessor:
 class TextNormalizer:
     """文本标准化器 - 英文使用NeMo TN，中文使用简单标准化"""
     
-    def __init__(self, gpu_id: int = 0):
-        self.gpu_id = gpu_id
+    def __init__(self):
+        self.chinese_normalizer = None
+        self.english_normalizer = None
         self.nemo_normalizer = None
         
         # 尝试加载 NeMo 英文文本标准化器
@@ -158,24 +196,26 @@ class TextNormalizer:
                 try:
                     # nemo_text_processing 包的初始化方式
                     self.nemo_normalizer = NeMoNormalizer(input_case='cased', lang='en')
-                    logger.info(f"GPU {gpu_id}: ✓ 成功加载 NeMo 英文文本标准化器 (nemo_text_processing)")
+                    logger.info("✓ 成功加载 NeMo 英文文本标准化器 (nemo_text_processing)")
                 except (TypeError, AttributeError):
                     try:
                         # 尝试其他初始化方式
                         self.nemo_normalizer = NeMoNormalizer(lang='en')
-                        logger.info(f"GPU {gpu_id}: ✓ 成功加载 NeMo 英文文本标准化器")
+                        logger.info("✓ 成功加载 NeMo 英文文本标准化器")
                     except Exception:
                         # 如果是从 nemo 包导入的模型类，可能需要 from_pretrained
                         try:
                             self.nemo_normalizer = NeMoNormalizer.from_pretrained(model_name="nemo_text_normalization_en")
-                            logger.info(f"GPU {gpu_id}: ✓ 成功加载 NeMo 英文文本标准化模型")
+                            logger.info("✓ 成功加载 NeMo 英文文本标准化模型")
                         except Exception:
                             raise
             except Exception as e:
-                logger.warning(f"GPU {gpu_id}: 加载 NeMo 标准化器失败: {e}，将使用简单标准化")
+                logger.warning(f"加载 NeMo 标准化器失败: {e}，将使用简单标准化")
                 self.nemo_normalizer = None
         else:
-            logger.info(f"GPU {gpu_id}: NeMo 文本标准化不可用，英文将使用简单标准化")
+            logger.info("NeMo 文本标准化不可用，英文将使用简单标准化")
+        
+        # 注意：中文使用简单标准化，不再使用 WeTextProcessing
     
     def normalize_text(self, text: str, language: str = 'auto') -> str:
         """标准化文本（TN - Text Normalization）
@@ -194,7 +234,7 @@ class TextNormalizer:
             else:
                 language = 'en'
         
-        logger.debug(f"GPU {self.gpu_id}: 文本标准化 - 语言: {language}, 原始长度: {len(text)}")
+        logger.debug(f"  文本标准化 - 语言: {language}{'(用户指定)' if language != 'auto' else '(自动检测)'}, 原始长度: {len(text)}")
         
         try:
             if language == 'en' and self.nemo_normalizer:
@@ -228,9 +268,9 @@ class TextNormalizer:
                         normalized = normalized.strip()
                         
                         if normalized != text:
-                            logger.debug(f"GPU {self.gpu_id}: NeMo TN: '{text}' -> '{normalized}'")
+                            logger.debug(f"    NeMo TN: '{text}' -> '{normalized}'")
                         
-                        # 进一步简单标准化（去除标点、转小写、标准化空格）以确保格式统一
+                        # 进一步简单标准化（去除标点、转小写）以确保格式统一
                         normalized = self._simple_normalize(normalized, language)
                         
                         return normalized
@@ -238,7 +278,7 @@ class TextNormalizer:
                         raise ValueError("NeMo normalize 返回 None")
                         
                 except Exception as e:
-                    logger.warning(f"GPU {self.gpu_id}: NeMo 标准化失败: {e}，回退到简单标准化")
+                    logger.warning(f"NeMo 标准化失败: {e}，回退到简单标准化")
                     import traceback
                     logger.debug(traceback.format_exc())
                     return self._simple_normalize(text, language)
@@ -246,10 +286,10 @@ class TextNormalizer:
                 # 中文或其他情况：使用简单标准化
                 normalized = self._simple_normalize(text, language)
                 if normalized != text:
-                    logger.debug(f"GPU {self.gpu_id}: 简单TN: '{text}' -> '{normalized}'")
+                    logger.debug(f"    简单TN: '{text}' -> '{normalized}'")
                 return normalized
         except Exception as e:
-            logger.warning(f"GPU {self.gpu_id}: 文本标准化失败: {e}，使用简单标准化")
+            logger.warning(f"文本标准化失败: {e}，使用简单标准化")
             return self._simple_normalize(text, language)
     
     def _simple_normalize(self, text: str, language: str) -> str:
@@ -258,6 +298,8 @@ class TextNormalizer:
         对于英文：转小写，去除标点符号，标准化空格（保留单个空格）
         对于中文：去除标点符号和空格
         """
+        import re
+        
         if language == 'zh':
             # 中文：去除标点符号和空格
             text = re.sub(r'[^\u4e00-\u9fff\w]', '', text)
@@ -266,14 +308,8 @@ class TextNormalizer:
             text = text.lower()
             text = re.sub(r'[^\w\s]', '', text)  # 去除标点符号
             text = re.sub(r'\s+', ' ', text)  # 将多个空格合并为一个空格
-            
+        
         return text.strip()
-    
-    def normalize_text_pair(self, text1: str, text2: str, language: str = "auto") -> Tuple[str, str]:
-        """标准化文本对（用于兼容原有接口）"""
-        normalized_text1 = self.normalize_text(text1, language)
-        normalized_text2 = self.normalize_text(text2, language)
-        return normalized_text1, normalized_text2
 
 class TTSFilterProcessor:
     """TTS音频筛选处理器"""
@@ -290,17 +326,16 @@ class TTSFilterProcessor:
         self.language = config.get('language', 'auto')
         logger.info(f"GPU {self.actual_gpu_id}: 语言设置为 '{self.language}' (设备: {self.device})")
         
-        # 初始化Whisper处理器
-        self.whisper_processor = WhisperProcessor(
-            model_size=config.get('whisper_model_size', 'large-v3'),
+        # 初始化SenseVoice处理器
+        self.sensevoice_processor = SenseVoiceProcessor(
+            model_dir=config.get('sensevoice_model_dir', 'iic/SenseVoiceSmall'),
             device=self.device,
-            gpu_id=self.actual_gpu_id,  # 用于日志显示
-            language=self.language,
-            model_dir=config.get('whisper_model_dir', '/root/data/pretrained_models/whisper_modes')
+            gpu_id=self.actual_gpu_id,
+            language=self.language
         )
         
-        # 初始化文本标准化器（使用 NeMo TN）
-        self.text_normalizer = TextNormalizer(gpu_id=self.actual_gpu_id)
+        # 初始化NeMo文本标准化器
+        self.text_normalizer = TextNormalizer()
         
         # CER阈值
         self.cer_threshold = config.get('cer_threshold', 0.05)
@@ -315,7 +350,7 @@ class TTSFilterProcessor:
             'failed_files': 0,
             'filtered_files': 0,
             'passed_files': 0,
-            'skipped_files': 0,  # 新增：跳过的文件数
+            'skipped_files': 0,
             'cer_values': []
         }
     
@@ -349,8 +384,8 @@ class TTSFilterProcessor:
             logger.info(f"  语言模式: {self.language}")
             
             # 语音识别
-            logger.info(f"  使用Whisper进行语音识别 (语言: {self.language})...")
-            transcription = self.whisper_processor.transcribe_audio(audio_path)
+            logger.info(f"  使用SenseVoice进行语音识别 (语言: {self.language})...")
+            transcription = self.sensevoice_processor.transcribe_audio(audio_path)
             result['transcription'] = transcription
             
             if not transcription:
@@ -398,76 +433,6 @@ class TTSFilterProcessor:
         
         return result
     
-    def process_prompt_directory(self, prompt_dir: str, prompt_id: str, 
-                               voiceprint_texts: List[Tuple[str, str]]) -> List[Dict]:
-        """处理一个prompt目录下的所有音频"""
-        results = []
-        
-        logger.info(f"\nGPU {self.actual_gpu_id}: 开始处理prompt目录")
-        logger.info(f"  Prompt ID: {prompt_id}")
-        logger.info(f"  目录路径: {prompt_dir}")
-        logger.info(f"  音频文件数: {len(voiceprint_texts)}")
-        logger.info(f"  处理语言: {self.language}")
-        if self.processed_audio_paths:
-            logger.info(f"  已处理音频数: {len(self.processed_audio_paths)}")
-        logger.info("=" * 80)
-        
-        skipped_in_prompt = 0
-        for idx, (voiceprint_id, groundtruth_text) in enumerate(voiceprint_texts, 1):
-            # 构建音频文件路径
-            audio_filename = f"{voiceprint_id}.wav"
-            audio_path = os.path.join(prompt_dir, audio_filename)
-            
-            # 检查是否已经处理过
-            if audio_path in self.processed_audio_paths:
-                logger.info(f"\n[{idx}/{len(voiceprint_texts)}] 跳过已处理的音频: {audio_filename}")
-                self.stats['skipped_files'] += 1
-                skipped_in_prompt += 1
-                continue
-            
-            # 输出进度
-            logger.info(f"\n[{idx}/{len(voiceprint_texts)}] 处理进度 (语言: {self.language})")
-            
-            # 处理音频
-            result = self.process_single_audio(
-                audio_path, groundtruth_text, voiceprint_id, prompt_id
-            )
-            results.append(result)
-            
-            # 更新统计
-            self.stats['total_files'] += 1
-            if result['success']:
-                self.stats['processed_files'] += 1
-                if result['passed']:
-                    self.stats['passed_files'] += 1
-                else:
-                    self.stats['filtered_files'] += 1
-            else:
-                self.stats['failed_files'] += 1
-        
-        # 输出当前prompt的统计
-        logger.info(f"\nPrompt {prompt_id} 处理完成 (语言: {self.language})")
-        logger.info(f"  新处理: {len(results)}, 跳过: {skipped_in_prompt}, " 
-                   f"通过: {sum(1 for r in results if r.get('passed'))}, " 
-                   f"筛除: {sum(1 for r in results if r.get('success') and not r.get('passed'))}")
-        logger.info("=" * 80)
-        
-        return results
-    
-    def process_subset(self, subset_data: List[Tuple[str, str, List[Tuple[str, str]]]], 
-                      subset_id: int) -> List[Dict]:
-        """处理数据子集"""
-        logger.info(f"GPU {self.actual_gpu_id}: 开始处理子集 {subset_id}，共 {len(subset_data)} 个prompt (语言: {self.language})")
-        
-        all_results = []
-        
-        for prompt_dir, prompt_id, voiceprint_texts in tqdm(subset_data, 
-                                                           desc=f"GPU {self.actual_gpu_id}: 子集{subset_id}"):
-            results = self.process_prompt_directory(prompt_dir, prompt_id, voiceprint_texts)
-            all_results.extend(results)
-        
-        return all_results
-
     def process_sample_tasks(self, sample_tasks: List[Tuple[str, str, str, str]], subset_id: int) -> List[Dict]:
         """按样本级任务处理（每个元素代表一个音频样本）
         
@@ -570,27 +535,6 @@ def load_existing_results(output_path: str) -> Tuple[Dict[str, Dict], Dict, Set[
     except Exception as e:
         logger.error(f"加载已有结果文件失败: {e}")
         return {}, {}, set()
-
-def prepare_data_for_processing(base_dir: str, json_data: Dict) -> List[Tuple[str, str, List[Tuple[str, str]]]]:
-    """准备处理数据"""
-    zero_shot_dir = os.path.join(base_dir, "zero_shot")
-    
-    if not os.path.exists(zero_shot_dir):
-        logger.error(f"zero_shot目录不存在: {zero_shot_dir}")
-        return []
-    
-    data_list = []
-    
-    # 遍历所有prompt
-    for prompt_id, voiceprint_texts in json_data.items():
-        prompt_dir = os.path.join(zero_shot_dir, prompt_id)
-        
-        if os.path.exists(prompt_dir) and os.path.isdir(prompt_dir):
-            data_list.append((prompt_dir, prompt_id, voiceprint_texts))
-        else:
-            logger.warning(f"Prompt目录不存在: {prompt_dir}")
-    
-    return data_list
 
 def build_sample_task_list(base_dir: str, json_data: Dict[str, List[Tuple[str, str]]]) -> List[Tuple[str, str, str, str]]:
     """将JSON展开为样本级任务列表
@@ -762,7 +706,7 @@ def merge_and_save_results(results_list: List[List[Dict]], stats_list: List[Dict
 def print_summary(stats: Dict):
     """打印统计摘要"""
     print("\n" + "=" * 80)
-    print("TTS音频筛选结果统计")
+    print("TTS音频筛选结果统计 (SenseVoice + NeMo TN)")
     print("=" * 80)
     print(f"总音频文件数:     {stats.get('total_files', 0)}")
     print(f"成功处理:         {stats.get('processed_files', 0)}")
@@ -790,19 +734,18 @@ def main():
     except RuntimeError:
         pass
     
-    parser = argparse.ArgumentParser(description="基于Whisper ASR和NeMo文本标准化的TTS音频筛选")
+    parser = argparse.ArgumentParser(description="基于SenseVoice Small ASR和NeMo文本标准化的TTS音频筛选")
     parser.add_argument("base_dir", type=str, help="音频文件基础目录")
     parser.add_argument("json_file", type=str, help="包含groundtruth的JSON文件")
     parser.add_argument("--output", type=str, help="输出结果文件路径")
-    parser.add_argument("--cer_threshold", type=float, default=0.1, 
-                       help="CER阈值，超过此值的音频将被筛选掉 (默认: 0.1)")
+    parser.add_argument("--cer_threshold", type=float, default=0.05, 
+                       help="CER阈值，超过此值的音频将被筛选掉 (默认: 0.05)")
     parser.add_argument("--num_gpus", type=int, help="使用的GPU数量")
-    parser.add_argument("--whisper_model_size", type=str, default="large-v3",
-                       choices=["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"],
-                       help="Whisper模型大小 (默认: large-v3)")
+    parser.add_argument("--sensevoice_model_dir", type=str, default="iic/SenseVoiceSmall",
+                       help="SenseVoice模型路径或模型ID (默认: iic/SenseVoiceSmall)")
     parser.add_argument("--language", type=str, choices=['auto', 'zh', 'en'], 
-                       default='en',
-                       help="文本语言：auto(自动检测), zh(中文), en(英文) (默认: en)")
+                       default='auto',
+                       help="文本语言：auto(自动检测), zh(中文), en(英文) (默认: auto)")
     parser.add_argument("--test_mode", action="store_true",
                        help="测试模式，只处理前10个prompt")
     parser.add_argument("--verbose", action="store_true",
@@ -858,8 +801,7 @@ def main():
     
     # 准备配置
     config = {
-        'whisper_model_size': args.whisper_model_size,
-        'whisper_model_dir': global_config.get('whisper_model_dir', '/root/data/pretrained_models/whisper_modes'),
+        'sensevoice_model_dir': args.sensevoice_model_dir,
         'cer_threshold': args.cer_threshold,
         'verbose': args.verbose,
         'language': args.language
@@ -870,7 +812,7 @@ def main():
         output_path = args.output
     else:
         base_name = Path(args.json_file).stem
-        output_path = f"tts_filter_results_{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        output_path = f"tts_filter_results_sensevoice_{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     
     # 加载已存在的结果（用于增量处理）
     existing_results = {}
@@ -898,14 +840,15 @@ def main():
             logger.info(f"将覆盖文件: {output_path}")
             logger.info("=" * 80)
     
-    print("基于Whisper ASR和NeMo文本标准化的TTS音频筛选")
+    print("基于SenseVoice Small ASR和NeMo文本标准化的TTS音频筛选")
     print("=" * 80)
     print(f"基础目录: {args.base_dir}")
     print(f"JSON文件: {args.json_file}")
     print(f"CER阈值: {args.cer_threshold}")
     print(f"使用GPU数: {num_gpus}")
-    print(f"Whisper模型: {args.whisper_model_size}")
+    print(f"SenseVoice模型: {args.sensevoice_model_dir}")
     print(f"语言设置: {args.language} {'(自动检测)' if args.language == 'auto' else '(中文)' if args.language == 'zh' else '(英文)'}")
+    print(f"文本标准化: NeMo (英文) / 简单标准化 (中文)")
     print(f"输出文件: {output_path}")
     print(f"处理模式: {'增量处理（跳过已处理）' if (skip_existing and processed_audio_paths) else '全新处理' if not processed_audio_paths else '强制重新处理'}")
     if processed_audio_paths:
@@ -964,8 +907,7 @@ def main():
         process_args = []
         for i in range(num_gpus):
             if i < len(data_splits) and data_splits[i]:
-                gpu_config = config.copy()
-                process_args.append((i, data_splits[i], gpu_config, i, processed_audio_paths))
+                process_args.append((i, data_splits[i], config, i, processed_audio_paths))
         
         # 启动多进程处理
         logger.info("启动多GPU并行处理...")
@@ -1005,3 +947,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -174,17 +174,38 @@ def _copy_single_audio(item: Dict, output_dir: str, organize_by_prompt: bool) ->
         if organize_by_prompt:
             # 按prompt组织: output_dir/<prompt_id>/<voiceprint_id>.wav
             target_dir = os.path.join(output_dir, prompt_id)
-            os.makedirs(target_dir, exist_ok=True)
+            # 多进程安全的目录创建 - 使用更严格的异常处理
+            try:
+                os.makedirs(target_dir, exist_ok=True)
+            except FileExistsError:
+                # 目录已存在（竞态条件），继续
+                pass
+            except Exception as mkdir_err:
+                return False, f"创建目录失败 {target_dir}: {mkdir_err}"
+            
             target_path = os.path.join(target_dir, f"{voiceprint_id}.wav")
         else:
             # 扁平结构: output_dir/<prompt_id>_<voiceprint_id>.wav
+            # 确保输出目录存在
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+            except FileExistsError:
+                pass
+            except Exception as mkdir_err:
+                return False, f"创建输出目录失败 {output_dir}: {mkdir_err}"
+            
             target_path = os.path.join(output_dir, f"{prompt_id}_{voiceprint_id}.wav")
         
-        shutil.copy2(tts_path, target_path)
+        # 复制文件
+        try:
+            shutil.copy2(tts_path, target_path)
+        except Exception as copy_err:
+            return False, f"复制文件失败 {tts_path} -> {target_path}: {copy_err}"
+        
         return True, None
         
     except Exception as e:
-        return False, f"复制失败 {item.get('tts_path', 'unknown')}: {e}"
+        return False, f"处理失败 {item.get('tts_path', 'unknown')}: {type(e).__name__}: {e}"
 
 
 def copy_filtered_audio(results: List[Dict], output_dir: str, 
@@ -204,6 +225,7 @@ def copy_filtered_audio(results: List[Dict], output_dir: str,
     
     copied_count = 0
     failed_count = 0
+    failed_errors = []  # 收集前几个失败的错误信息
     
     # 使用多进程复制
     copy_func = partial(_copy_single_audio, output_dir=output_dir, organize_by_prompt=organize_by_prompt)
@@ -220,8 +242,20 @@ def copy_filtered_audio(results: List[Dict], output_dir: str,
                     logger.info(f"复制进度: {copied_count}/{len(to_copy)} ({copied_count/len(to_copy)*100:.1f}%)")
             else:
                 failed_count += 1
-                if error_msg:
-                    logger.warning(error_msg)
+                # 只收集前10个错误详情用于调试
+                if len(failed_errors) < 10 and error_msg:
+                    failed_errors.append(error_msg)
+                # 每1000个失败输出一次警告
+                if failed_count % 1000 == 0:
+                    logger.warning(f"已失败: {failed_count} 个文件")
+    
+    # 输出失败统计
+    if failed_count > 0:
+        logger.warning(f"\n复制失败统计: {failed_count}/{len(to_copy)} 个文件")
+        if failed_errors:
+            logger.warning("前几个失败的错误信息:")
+            for i, err in enumerate(failed_errors, 1):
+                logger.warning(f"  {i}. {err}")
     
     return copied_count, failed_count
 

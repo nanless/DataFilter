@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 单个JSON文件的TTS音频筛选脚本
+# 基于SenseVoice Small ASR和NeMo文本标准化的TTS音频筛选脚本
 
 # 颜色定义
 RED='\033[0;31m'
@@ -10,15 +10,10 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # 默认参数
-WHISPER_MODEL_SIZE="large-v3"
-KIMI_MODEL_PATH="/root/data/pretrained_models/Kimi-Audio-7B-Instruct"
-KIMI_AUDIO_DIR="/root/code/github_repos/Kimi-Audio"
 SENSEVOICE_MODEL_DIR="iic/SenseVoiceSmall"
-CER_THRESHOLD=0.2
+CER_THRESHOLD=0.05
 NUM_GPUS=8
-LANGUAGE="en"
-USE_WHISPER=false
-USE_SENSEVOICE=true  # 默认使用 SenseVoice
+LANGUAGE="auto"
 TEST_MODE=false
 VERBOSE=false
 SKIP_EXISTING=true
@@ -39,10 +34,6 @@ show_help() {
     echo "  --cer_threshold CER阈值 (默认: $CER_THRESHOLD)"
     echo "  --num_gpus      使用的GPU数量 (默认: $NUM_GPUS)"
     echo "  --language      文本语言: auto/zh/en (默认: $LANGUAGE)"
-    echo "  --use_whisper   使用Whisper+NeMo TN模式"
-    echo "  --use_sensevoice 使用SenseVoice Small+NeMo TN模式（默认已开启）"
-    echo "  --no-use_whisper 禁用Whisper模式，使用Kimi-Audio模式"
-    echo "  --whisper_model Whisper模型大小: tiny/base/small/medium/large/large-v2/large-v3 (默认: $WHISPER_MODEL_SIZE)"
     echo "  --sensevoice_model_dir SenseVoice模型路径或ID (默认: $SENSEVOICE_MODEL_DIR)"
     echo "  --test_mode     测试模式，只处理前10个prompt"
     echo "  --verbose       输出详细的处理日志"
@@ -87,24 +78,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         --language)
             LANGUAGE="$2"
-            shift 2
-            ;;
-        --use_whisper)
-            USE_WHISPER=true
-            shift
-            ;;
-        --no-use_whisper)
-            USE_WHISPER=false
-            USE_SENSEVOICE=false
-            shift
-            ;;
-        --use_sensevoice)
-            USE_WHISPER=false
-            USE_SENSEVOICE=true
-            shift
-            ;;
-        --whisper_model)
-            WHISPER_MODEL_SIZE="$2"
             shift 2
             ;;
         --sensevoice_model_dir)
@@ -204,74 +177,36 @@ if [ "$NUM_GPUS" -gt "$GPU_COUNT" ]; then
 fi
 
 echo -e "${BLUE}========================================${NC}"
-if [ "$USE_SENSEVOICE" = true ]; then
-    echo -e "${BLUE}    TTS音频筛选 (SenseVoice Small + NeMo TN) [默认]${NC}"
-elif [ "$USE_WHISPER" = true ]; then
-    echo -e "${BLUE}    TTS音频筛选 (Whisper ASR + NeMo TN)${NC}"
-else
-    echo -e "${BLUE}    TTS音频筛选 (Kimi-Audio ASR)${NC}"
-fi
+echo -e "${BLUE}    TTS音频筛选 (SenseVoice + NeMo TN)${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo -e "${YELLOW}基础目录: $BASE_DIR${NC}"
 echo -e "${YELLOW}JSON文件: $JSON_FILE${NC}"
 echo -e "${YELLOW}CER阈值: $CER_THRESHOLD${NC}"
 echo -e "${YELLOW}使用GPU数: $NUM_GPUS${NC}"
 echo -e "${YELLOW}语言设置: $LANGUAGE${NC}"
+echo -e "${YELLOW}SenseVoice模型: $SENSEVOICE_MODEL_DIR${NC}"
+echo -e "${YELLOW}文本标准化: NeMo (英文) / 简单标准化 (中文)${NC}"
 
-if [ "$USE_SENSEVOICE" = true ]; then
-    echo -e "${YELLOW}SenseVoice模型: $SENSEVOICE_MODEL_DIR${NC}"
-    echo -e "${YELLOW}文本标准化: NeMo (英文) / 简单标准化 (中文)${NC}"
-    
-    # 检查funasr是否安装
-    if ! python3 -c "import funasr" 2>/dev/null; then
-        echo -e "${RED}错误: funasr库未安装${NC}"
-        echo -e "${YELLOW}请安装: pip install funasr${NC}"
-        exit 1
-    fi
-    
-    # 检查NeMo文本标准化是否安装
-    if ! python3 -c "import nemo_text_processing" 2>/dev/null; then
-        echo -e "${YELLOW}警告: NeMo文本标准化未安装，英文将使用简单文本标准化${NC}"
-        echo -e "${YELLOW}建议安装: pip install nemo_text_processing${NC}"
-    fi
-elif [ "$USE_WHISPER" = true ]; then
-    echo -e "${YELLOW}Whisper模型: $WHISPER_MODEL_SIZE${NC}"
-    echo -e "${YELLOW}文本标准化: NeMo (英文) / 简单标准化 (中文)${NC}"
-    
-    # 检查NeMo文本标准化是否安装（可选）
-    if ! python3 -c "import nemo_text_processing" 2>/dev/null; then
-        echo -e "${YELLOW}警告: NeMo文本标准化未安装，英文将使用简单文本标准化${NC}"
-        echo -e "${YELLOW}建议安装: pip install nemo_text_processing${NC}"
-    fi
-else
-    echo -e "${YELLOW}Kimi模型: $KIMI_MODEL_PATH${NC}"
+# 检查funasr是否安装
+if ! python3 -c "import funasr" 2>/dev/null; then
+    echo -e "${RED}错误: funasr库未安装${NC}"
+    echo -e "${YELLOW}请安装: pip install funasr${NC}"
+    exit 1
+fi
+
+# 检查NeMo文本标准化是否安装
+if ! python3 -c "import nemo_text_processing" 2>/dev/null; then
+    echo -e "${YELLOW}警告: NeMo文本标准化未安装，英文将使用简单文本标准化${NC}"
+    echo -e "${YELLOW}建议安装: pip install nemo_text_processing${NC}"
 fi
 
 # 构建Python命令
-if [ "$USE_SENSEVOICE" = true ]; then
-    PYTHON_CMD="python3 tts_filter_by_sensevoice_asr.py"
-    PYTHON_CMD="$PYTHON_CMD \"$BASE_DIR\" \"$JSON_FILE\""
-    PYTHON_CMD="$PYTHON_CMD --cer_threshold $CER_THRESHOLD"
-    PYTHON_CMD="$PYTHON_CMD --num_gpus $NUM_GPUS"
-    PYTHON_CMD="$PYTHON_CMD --sensevoice_model_dir \"$SENSEVOICE_MODEL_DIR\""
-    PYTHON_CMD="$PYTHON_CMD --language $LANGUAGE"
-elif [ "$USE_WHISPER" = true ]; then
-    PYTHON_CMD="python3 tts_filter_by_whisper_asr.py"
-    PYTHON_CMD="$PYTHON_CMD \"$BASE_DIR\" \"$JSON_FILE\""
-    PYTHON_CMD="$PYTHON_CMD --cer_threshold $CER_THRESHOLD"
-    PYTHON_CMD="$PYTHON_CMD --num_gpus $NUM_GPUS"
-    PYTHON_CMD="$PYTHON_CMD --whisper_model_size $WHISPER_MODEL_SIZE"
-    PYTHON_CMD="$PYTHON_CMD --language $LANGUAGE"
-else
-    # 保持向后兼容，使用原来的kimi脚本
-    PYTHON_CMD="python3 tts_filter_by_kimi_asr.py"
-    PYTHON_CMD="$PYTHON_CMD \"$BASE_DIR\" \"$JSON_FILE\""
-    PYTHON_CMD="$PYTHON_CMD --cer_threshold $CER_THRESHOLD"
-    PYTHON_CMD="$PYTHON_CMD --num_gpus $NUM_GPUS"
-    PYTHON_CMD="$PYTHON_CMD --kimi_model_path \"$KIMI_MODEL_PATH\""
-    PYTHON_CMD="$PYTHON_CMD --kimi_audio_dir \"$KIMI_AUDIO_DIR\""
-    PYTHON_CMD="$PYTHON_CMD --language $LANGUAGE"
-fi
+PYTHON_CMD="python3 tts_filter_by_sensevoice_asr.py"
+PYTHON_CMD="$PYTHON_CMD \"$BASE_DIR\" \"$JSON_FILE\""
+PYTHON_CMD="$PYTHON_CMD --cer_threshold $CER_THRESHOLD"
+PYTHON_CMD="$PYTHON_CMD --num_gpus $NUM_GPUS"
+PYTHON_CMD="$PYTHON_CMD --sensevoice_model_dir \"$SENSEVOICE_MODEL_DIR\""
+PYTHON_CMD="$PYTHON_CMD --language $LANGUAGE"
 
 if [ ! -z "$OUTPUT_FILE" ]; then
     PYTHON_CMD="$PYTHON_CMD --output \"$OUTPUT_FILE\""
@@ -333,3 +268,4 @@ fi
 echo -e "${BLUE}========================================${NC}"
 echo -e "${GREEN}    处理完成${NC}"
 echo -e "${BLUE}========================================${NC}"
+

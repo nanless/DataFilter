@@ -46,21 +46,25 @@
 **主要脚本**：
 - `tts_filter_by_whisper_asr.py` - Whisper+LLM模式主程序
 - `tts_filter_by_kimi_asr.py` - Kimi-Audio模式主程序
+- `tts_filter_by_sensevoice_asr.py` - SenseVoice Small+NeMo TN模式主程序
 - `llm_service.py` - LLM文本标准化服务
-- `run_single_tts_filter.sh` - 单数据集处理
+- `run_single_tts_filter.sh` - 单数据集处理（支持三种模式）
+- `run_single_tts_filter_sensevoice.sh` - SenseVoice模式专用脚本
 - `run_all_tts_filter.sh` - 批量处理
 - `auto_start_llm_services.sh` - 启动LLM服务
 - `stop_multi_llm_services.sh` - 停止LLM服务
 
-**两种模式对比**：
+**三种模式对比**：
 
-| 特性 | Whisper+LLM模式 | Kimi-Audio模式 |
-|------|----------------|----------------|
-| 识别准确度 | 高 | 中等 |
-| 文本标准化 | LLM智能处理 | 规则引擎 |
-| 部署复杂度 | 需启动LLM服务 | 简单 |
-| 资源占用 | 较高（每GPU一个LLM实例） | 较低 |
-| 适用场景 | 高精度要求、混合语言 | 标准中文、大规模批量 |
+| 特性 | Whisper+NeMo TN模式 | Kimi-Audio模式 | SenseVoice+NeMo TN模式 |
+|------|----------------|----------------|----------------------|
+| 识别准确度 | 高 | 中等 | 高（中文优化） |
+| 文本标准化 | NeMo TN（英文） | 规则引擎 | NeMo TN（英文）/ 简单标准化（中文） |
+| 部署复杂度 | 简单 | 简单 | 简单 |
+| 资源占用 | 中等 | 较低 | 中等 |
+| 模型大小 | 大（large-v3约10GB） | 大（7B约14GB） | 小（Small约1GB） |
+| 处理速度 | 较慢 | 中等 | 快 |
+| 适用场景 | 高精度要求、混合语言 | 标准中文、大规模批量 | 中文为主、快速处理 |
 
 ### 2. 双重筛选（ASR+声纹）
 
@@ -134,6 +138,29 @@ cd /root/code/github_repos/DataFilter/tts_speech_asr_filter
     --cer_threshold 0.1
 ```
 
+### 场景1b：TTS音频质量筛选（SenseVoice Small+NeMo TN模式）
+
+```bash
+cd /root/code/github_repos/DataFilter/tts_speech_asr_filter
+
+# 1. 处理单个数据集（使用专用脚本）
+./run_single_tts_filter_sensevoice.sh \
+    /path/to/audio/dir \
+    /path/to/groundtruth.json \
+    --language zh \
+    --num_gpus 4 \
+    --cer_threshold 0.05
+
+# 2. 或使用通用脚本指定模式
+./run_single_tts_filter.sh \
+    /path/to/audio/dir \
+    /path/to/groundtruth.json \
+    --use_sensevoice \
+    --language zh \
+    --num_gpus 4 \
+    --cer_threshold 0.05
+```
+
 ### 场景2：双重筛选（ASR+声纹）
 
 ```bash
@@ -196,11 +223,18 @@ pip install ollama
 #### 4. Kimi模式额外依赖
 
 ```bash
-# 安装WeTextProcessing（文本标准化）
-cd /root/code/github_repos
-git clone https://github.com/wenet-e2e/WeTextProcessing.git
-cd WeTextProcessing
-pip install -e .
+# 安装NeMo文本标准化（英文TN）
+pip install nemo_text_processing
+```
+
+#### 5. SenseVoice模式额外依赖
+
+```bash
+# 安装funasr（SenseVoice模型）
+pip install funasr
+
+# 安装NeMo文本标准化（英文TN）
+pip install nemo_text_processing
 ```
 
 ### 模型准备
@@ -208,6 +242,7 @@ pip install -e .
 - **Whisper模型**：会自动下载到配置目录
 - **LLM模型**：默认使用`qwen3:32b`，启动服务时自动拉取
 - **Kimi-Audio模型**：需手动下载到指定路径
+- **SenseVoice模型**：会自动从HuggingFace下载（`iic/SenseVoiceSmall`）
 
 ---
 
@@ -308,6 +343,36 @@ curl http://localhost:8001/health
     --language zh \
     --num_gpus 8
 ```
+
+#### SenseVoice Small+NeMo TN模式
+
+无需启动LLM服务，直接运行：
+
+```bash
+# 单数据集（使用专用脚本）
+./run_single_tts_filter_sensevoice.sh \
+    /path/to/audio/dir \
+    /path/to/groundtruth.json \
+    --language zh \
+    --num_gpus 4 \
+    --cer_threshold 0.05 \
+    --sensevoice_model_dir iic/SenseVoiceSmall
+
+# 或使用通用脚本
+./run_single_tts_filter.sh \
+    /path/to/audio/dir \
+    /path/to/groundtruth.json \
+    --use_sensevoice \
+    --language zh \
+    --num_gpus 4 \
+    --cer_threshold 0.05
+```
+
+**参数说明**：
+- `--use_sensevoice`：使用SenseVoice模式
+- `--sensevoice_model_dir`：SenseVoice模型路径或ID（默认：`iic/SenseVoiceSmall`）
+- `--cer_threshold`：CER阈值，默认0.05（5%）
+- 其他参数与Whisper/Kimi模式相同
 
 ### 2. 双重筛选
 
@@ -962,7 +1027,7 @@ curl -X POST http://localhost:8000/normalize \
 - requests, fastapi, uvicorn
 - openai-whisper, pydantic
 - ollama（Whisper模式）
-- WeTextProcessing（Kimi模式，可选）
+- nemo_text_processing（文本标准化，可选）
 
 ---
 

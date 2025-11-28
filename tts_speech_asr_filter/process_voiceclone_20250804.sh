@@ -259,6 +259,7 @@ else
     
     SUCCESS_COUNT=0
     FAIL_COUNT=0
+    SKIP_COUNT=0
     
     for part in "${PARTS_TO_PROCESS[@]}"; do
         echo -e "${BLUE}----------------------------------------${NC}"
@@ -270,59 +271,95 @@ else
         ZERO_SHOT_DIR="$BASE_DIR/zero_shot"
         TIMESTAMP=$(date +%Y%m%d_%H%M%S)
         OUTPUT_JSON="$RESULTS_DIR/tts_asr_filter_part${part}_${TIMESTAMP}.json"
+        LOG_FILE="$LOG_DIR/part${part}_${TIMESTAMP}.log"
         
         echo -e "${CYAN}JSON 文件: $JSON_FILE${NC}"
         echo -e "${CYAN}音频目录: $ZERO_SHOT_DIR${NC}"
         echo -e "${CYAN}输出文件: $OUTPUT_JSON${NC}"
+        echo -e "${CYAN}日志文件: $LOG_FILE${NC}"
         echo ""
         
         # 验证文件和目录
         if [ ! -f "$JSON_FILE" ]; then
             echo -e "${RED}✗ JSON 文件不存在，跳过${NC}"
-            ((FAIL_COUNT++))
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Part $part: JSON文件不存在，跳过" >> "$LOG_FILE" 2>&1 || true
+            ((SKIP_COUNT++))
             continue
         fi
         
         if [ ! -d "$ZERO_SHOT_DIR" ]; then
             echo -e "${RED}✗ zero_shot 目录不存在，跳过${NC}"
-            ((FAIL_COUNT++))
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Part $part: zero_shot目录不存在，跳过" >> "$LOG_FILE" 2>&1 || true
+            ((SKIP_COUNT++))
             continue
         fi
         
         # 调用 run_single_tts_filter.sh
-        cd "$SCRIPT_DIR"
+        cd "$SCRIPT_DIR" || {
+            echo -e "${RED}✗ 无法切换到脚本目录: $SCRIPT_DIR${NC}"
+            ((FAIL_COUNT++))
+            continue
+        }
         
+        # 使用 set +e 来捕获错误，但继续执行
         set +e
-        if [ -n "$USE_SENSEVOICE_OPT" ]; then
-            ./run_single_tts_filter.sh "$BASE_DIR" "$JSON_FILE" $USE_SENSEVOICE_OPT \
-                --output "$OUTPUT_JSON" \
-                "${PASS_THROUGH_ARGS[@]}"
-        else
-            ./run_single_tts_filter.sh "$BASE_DIR" "$JSON_FILE" $USE_WHISPER_OPT \
-                --output "$OUTPUT_JSON" \
-                "${PASS_THROUGH_ARGS[@]}"
-        fi
+        {
+            if [ -n "$USE_SENSEVOICE_OPT" ]; then
+                ./run_single_tts_filter.sh "$BASE_DIR" "$JSON_FILE" ${USE_SENSEVOICE_OPT} \
+                    --output "$OUTPUT_JSON" \
+                    "${PASS_THROUGH_ARGS[@]}"
+            elif [ -n "$USE_WHISPER_OPT" ]; then
+                ./run_single_tts_filter.sh "$BASE_DIR" "$JSON_FILE" ${USE_WHISPER_OPT} \
+                    --output "$OUTPUT_JSON" \
+                    "${PASS_THROUGH_ARGS[@]}"
+            else
+                ./run_single_tts_filter.sh "$BASE_DIR" "$JSON_FILE" \
+                    --output "$OUTPUT_JSON" \
+                    "${PASS_THROUGH_ARGS[@]}"
+            fi
+        } >> "$LOG_FILE" 2>&1
         RET=$?
-        set -e
+        # 在循环内部保持 set +e，避免因为统计命令失败导致脚本退出
+        set +e
         
         if [ $RET -eq 0 ]; then
             echo -e "${GREEN}✓ Part $part 处理完成${NC}"
-            ((SUCCESS_COUNT++))
+            ((SUCCESS_COUNT++)) || true
         else
             echo -e "${RED}✗ Part $part 处理失败 (退出码: $RET)${NC}"
-            ((FAIL_COUNT++))
+            echo -e "${YELLOW}  查看日志: $LOG_FILE${NC}"
+            ((FAIL_COUNT++)) || true
         fi
-        echo ""
+        echo "" || true
     done
+    
+    # 恢复 set -e 以便后续命令失败时能够退出
+    set -e
     
     echo -e "${BLUE}========================================${NC}"
     echo -e "${BLUE}  处理完成统计${NC}"
     echo -e "${BLUE}========================================${NC}"
     echo -e "${GREEN}成功: $SUCCESS_COUNT${NC}"
     echo -e "${RED}失败: $FAIL_COUNT${NC}"
+    if [ $SKIP_COUNT -gt 0 ]; then
+        echo -e "${YELLOW}跳过: $SKIP_COUNT${NC}"
+    fi
     echo -e "${CYAN}结果目录: $RESULTS_DIR${NC}"
     echo -e "${CYAN}日志目录: $LOG_DIR${NC}"
     echo -e "${BLUE}========================================${NC}"
+    
+    # 如果所有part都处理完成，输出总结
+    TOTAL_PARTS=${#PARTS_TO_PROCESS[@]}
+    PROCESSED_PARTS=$((SUCCESS_COUNT + FAIL_COUNT + SKIP_COUNT))
+    if [ $PROCESSED_PARTS -lt $TOTAL_PARTS ]; then
+        echo -e "${YELLOW}警告: 只处理了 $PROCESSED_PARTS/$TOTAL_PARTS 个 part${NC}"
+        echo -e "${YELLOW}未处理的 part: ${NC}"
+        for part in "${PARTS_TO_PROCESS[@]}"; do
+            if [ ! -f "$RESULTS_DIR/tts_asr_filter_part${part}_"*.json ] 2>/dev/null; then
+                echo -e "${YELLOW}  - Part $part${NC}"
+            fi
+        done
+    fi
 fi
 
 echo -e "${GREEN}✓ 全部完成${NC}"

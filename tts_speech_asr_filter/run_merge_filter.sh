@@ -15,13 +15,12 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # 默认配置
-# ASR_RESULT_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_asr_filter/results/tts_asr_filter_results_combined_voiceclone_child.json"
-ASR_RESULT_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20250804/tts_asr_filter/results/tts_asr_filter_combined_voiceclone_20250804_20251116_001542.json"
-# VP_RESULT_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_voiceprint_filter_dualsim/results/tts_voiceprint_filter_results_20251114_120918.json"
-VP_RESULT_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20250804/tts_prompt_clone_similarity_dualsim/results/tts_prompt_clone_similarity_20251114_120934.json"
-OUTPUT_DIR_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20250804/filtered_speech"
-CER_THRESHOLD_DEFAULT="0.2"
-SIM_THRESHOLD_DEFAULT="0.7"
+ASR_RESULT_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_asr_filter_sensevoice/results/tts_asr_filter_results_combined_voiceclone_child.json"
+VP_RESULT_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20251022/tts_voiceprint_filter_dualsim/results/tts_voiceprint_filter_results_20251114_120918.json"
+# VP_RESULT_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20250804/tts_prompt_clone_similarity_dualsim/results/tts_prompt_clone_similarity_20251114_120934.json"
+OUTPUT_DIR_DEFAULT="/root/group-shared/voiceprint/share/voiceclone_child_20251022/filtered_speech_sensevoice_cer0.3_sim0.75_20251127"
+CER_THRESHOLD_DEFAULT="0.3"
+SIM_THRESHOLD_DEFAULT="0.75"
 NUM_WORKERS_DEFAULT="16"
 
 ASR_RESULT="$ASR_RESULT_DEFAULT"

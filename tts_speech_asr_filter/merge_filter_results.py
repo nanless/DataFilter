@@ -212,6 +212,8 @@ def copy_filtered_audio(results: List[Dict], output_dir: str,
                        organize_by_prompt: bool = True,
                        num_workers: int = 8) -> Tuple[int, int]:
     """复制通过筛选的音频文件（多进程加速）"""
+    import time
+    
     os.makedirs(output_dir, exist_ok=True)
     
     # 筛选出需要复制的音频
@@ -227,19 +229,53 @@ def copy_filtered_audio(results: List[Dict], output_dir: str,
     failed_count = 0
     failed_errors = []  # 收集前几个失败的错误信息
     
+    # 动态调整进度输出频率：根据总数决定
+    # 对于大量文件，更频繁地输出进度
+    if len(to_copy) > 10000:
+        progress_interval = 50  # 每50个输出一次
+    elif len(to_copy) > 1000:
+        progress_interval = 20  # 每20个输出一次
+    else:
+        progress_interval = 10  # 每10个输出一次
+    
+    start_time = time.time()
+    last_progress_time = start_time
+    heartbeat_interval = 30  # 30秒心跳
+    
     # 使用多进程复制
     copy_func = partial(_copy_single_audio, output_dir=output_dir, organize_by_prompt=organize_by_prompt)
     
+    logger.info("开始提交复制任务...")
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = {executor.submit(copy_func, item): item for item in to_copy}
+        logger.info(f"已提交 {len(futures)} 个复制任务，开始处理...")
         
         for future in as_completed(futures):
-            success, error_msg = future.result()
+            try:
+                success, error_msg = future.result()
+            except Exception as e:
+                success = False
+                error_msg = f"任务执行异常: {type(e).__name__}: {e}"
+                logger.warning(f"复制任务异常: {error_msg}")
             
             if success:
                 copied_count += 1
-                if copied_count % 100 == 0 or copied_count == len(to_copy):
-                    logger.info(f"复制进度: {copied_count}/{len(to_copy)} ({copied_count/len(to_copy)*100:.1f}%)")
+                current_time = time.time()
+                
+                # 定期输出进度
+                if copied_count % progress_interval == 0 or copied_count == len(to_copy):
+                    elapsed = current_time - start_time
+                    rate = copied_count / elapsed if elapsed > 0 else 0
+                    remaining = (len(to_copy) - copied_count) / rate if rate > 0 else 0
+                    logger.info(f"复制进度: {copied_count}/{len(to_copy)} ({copied_count/len(to_copy)*100:.1f}%) | "
+                              f"速度: {rate:.1f} 文件/秒 | 预计剩余: {remaining/60:.1f} 分钟")
+                    last_progress_time = current_time
+                # 心跳：如果超过30秒没有进度输出，输出心跳信息
+                elif current_time - last_progress_time >= heartbeat_interval:
+                    elapsed = current_time - start_time
+                    rate = copied_count / elapsed if elapsed > 0 else 0
+                    logger.info(f"[心跳] 已复制: {copied_count}/{len(to_copy)} | 速度: {rate:.1f} 文件/秒 | 运行时间: {elapsed/60:.1f} 分钟")
+                    last_progress_time = current_time
             else:
                 failed_count += 1
                 # 只收集前10个错误详情用于调试
@@ -248,6 +284,9 @@ def copy_filtered_audio(results: List[Dict], output_dir: str,
                 # 每1000个失败输出一次警告
                 if failed_count % 1000 == 0:
                     logger.warning(f"已失败: {failed_count} 个文件")
+    
+    total_time = time.time() - start_time
+    logger.info(f"复制任务完成，总耗时: {total_time/60:.1f} 分钟")
     
     # 输出失败统计
     if failed_count > 0:

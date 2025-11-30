@@ -233,22 +233,95 @@ PY
     echo -e "${GREEN}✓ JSON 合并完成: $COMBINED_JSON${NC}"
     echo ""
     
-    # 找出所有对应的 zero_shot 目录的共同父目录
-    # 这里假设所有 part 的 zero_shot 都在各自的目录下，需要特殊处理
-    echo -e "${YELLOW}注意: 合并模式下需要手动指定音频基础目录${NC}"
-    echo -e "${YELLOW}建议使用分别处理模式（不加 --merge 参数）${NC}"
+    # 收集所有part的base_dir
+    ADDITIONAL_BASE_DIRS=()
+    PRIMARY_BASE_DIR=""
+    
+    for part in "${PARTS_TO_PROCESS[@]}"; do
+        PART_BASE_DIR="$DATA_DIR/voiceprint_20250804_part${part}_20250804"
+        PART_ZERO_SHOT_DIR="$PART_BASE_DIR/zero_shot"
+        
+        if [ ! -d "$PART_ZERO_SHOT_DIR" ]; then
+            echo -e "${YELLOW}警告: Part $part 的 zero_shot 目录不存在，跳过${NC}"
+            continue
+        fi
+        
+        if [ -z "$PRIMARY_BASE_DIR" ]; then
+            PRIMARY_BASE_DIR="$PART_BASE_DIR"
+        else
+            ADDITIONAL_BASE_DIRS+=("$PART_BASE_DIR")
+        fi
+    done
+    
+    if [ -z "$PRIMARY_BASE_DIR" ]; then
+        echo -e "${RED}错误: 没有找到任何有效的part目录${NC}"
+        exit 1
+    fi
+    
+    echo -e "${CYAN}音频文件搜索配置:${NC}"
+    echo -e "${YELLOW}  主目录: $PRIMARY_BASE_DIR${NC}"
+    if [ ${#ADDITIONAL_BASE_DIRS[@]} -gt 0 ]; then
+        echo -e "${YELLOW}  额外目录 (${#ADDITIONAL_BASE_DIRS[@]} 个):${NC}"
+        for bd in "${ADDITIONAL_BASE_DIRS[@]}"; do
+            echo -e "${YELLOW}    - $bd${NC}"
+        done
+    fi
     echo ""
     
     OUTPUT_JSON="$RESULTS_DIR/tts_asr_filter_combined_voiceclone_20250804_${TIMESTAMP}.json"
+    LOG_FILE="$LOG_DIR/combined_${TIMESTAMP}.log"
     
     echo -e "${CYAN}开始 CER 计算...${NC}"
     echo -e "${YELLOW}JSON: $COMBINED_JSON${NC}"
+    echo -e "${YELLOW}主基础目录: $PRIMARY_BASE_DIR${NC}"
     echo -e "${YELLOW}输出: $OUTPUT_JSON${NC}"
+    echo -e "${YELLOW}日志: $LOG_FILE${NC}"
     echo ""
     
-    # 这里需要特殊处理，因为音频文件分散在多个 part 目录下
-    # 暂时跳过实际执行，提示用户
-    echo -e "${YELLOW}合并模式需要特殊处理音频路径，请使用分别处理模式${NC}"
+    # 调用 run_single_tts_filter.sh
+    cd "$SCRIPT_DIR" || {
+        echo -e "${RED}✗ 无法切换到脚本目录: $SCRIPT_DIR${NC}"
+        exit 1
+    }
+    
+    # 使用 set +e 来捕获错误，但继续执行
+    set +e
+    {
+        # 构建额外的base_dir参数
+        ADDITIONAL_DIRS_ARGS=()
+        if [ ${#ADDITIONAL_BASE_DIRS[@]} -gt 0 ]; then
+            ADDITIONAL_DIRS_ARGS=("--additional_base_dirs" "${ADDITIONAL_BASE_DIRS[@]}")
+        fi
+        
+        if [ -n "$USE_SENSEVOICE_OPT" ]; then
+            ./run_single_tts_filter.sh "$PRIMARY_BASE_DIR" "$COMBINED_JSON" ${USE_SENSEVOICE_OPT} \
+                --output "$OUTPUT_JSON" \
+                "${ADDITIONAL_DIRS_ARGS[@]}" \
+                "${PASS_THROUGH_ARGS[@]}"
+        elif [ -n "$USE_WHISPER_OPT" ]; then
+            ./run_single_tts_filter.sh "$PRIMARY_BASE_DIR" "$COMBINED_JSON" ${USE_WHISPER_OPT} \
+                --output "$OUTPUT_JSON" \
+                "${ADDITIONAL_DIRS_ARGS[@]}" \
+                "${PASS_THROUGH_ARGS[@]}"
+        else
+            ./run_single_tts_filter.sh "$PRIMARY_BASE_DIR" "$COMBINED_JSON" \
+                --output "$OUTPUT_JSON" \
+                "${ADDITIONAL_DIRS_ARGS[@]}" \
+                "${PASS_THROUGH_ARGS[@]}"
+        fi
+    } >> "$LOG_FILE" 2>&1
+    RET=$?
+    set -e
+    
+    if [ $RET -eq 0 ]; then
+        echo -e "${GREEN}✓ 合并处理完成${NC}"
+        echo -e "${CYAN}结果文件: $OUTPUT_JSON${NC}"
+        echo -e "${CYAN}日志文件: $LOG_FILE${NC}"
+    else
+        echo -e "${RED}✗ 合并处理失败 (退出码: $RET)${NC}"
+        echo -e "${YELLOW}  查看日志: $LOG_FILE${NC}"
+        exit 1
+    fi
     
 else
     # 分别处理模式：对每个 part 单独处理
@@ -260,6 +333,7 @@ else
     SUCCESS_COUNT=0
     FAIL_COUNT=0
     SKIP_COUNT=0
+    RESULT_FILES=()  # 记录成功的结果文件
     
     for part in "${PARTS_TO_PROCESS[@]}"; do
         echo -e "${BLUE}----------------------------------------${NC}"
@@ -324,6 +398,9 @@ else
         
         if [ $RET -eq 0 ]; then
             echo -e "${GREEN}✓ Part $part 处理完成${NC}"
+            if [ -f "$OUTPUT_JSON" ]; then
+                RESULT_FILES+=("$OUTPUT_JSON")
+            fi
             ((SUCCESS_COUNT++)) || true
         else
             echo -e "${RED}✗ Part $part 处理失败 (退出码: $RET)${NC}"
@@ -359,6 +436,136 @@ else
                 echo -e "${YELLOW}  - Part $part${NC}"
             fi
         done
+    fi
+    
+    # 合并所有成功的结果文件
+    if [ ${#RESULT_FILES[@]} -gt 0 ]; then
+        echo ""
+        echo -e "${CYAN}========================================${NC}"
+        echo -e "${CYAN}  合并结果文件${NC}"
+        echo -e "${CYAN}========================================${NC}"
+        
+        MERGE_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        MERGED_OUTPUT_JSON="$RESULTS_DIR/tts_asr_filter_merged_all_parts_${MERGE_TIMESTAMP}.json"
+        
+        echo -e "${CYAN}找到 ${#RESULT_FILES[@]} 个结果文件，开始合并...${NC}"
+        
+        # 使用Python脚本合并结果
+        python3 - "${RESULT_FILES[@]}" "$MERGED_OUTPUT_JSON" << 'PY'
+import sys, json
+from collections import defaultdict
+
+result_files = sys.argv[1:-1]
+out_path = sys.argv[-1]
+
+# 合并所有结果
+all_filter_results = []
+merged_stats = {
+    'total_files': 0,
+    'processed_files': 0,
+    'failed_files': 0,
+    'filtered_files': 0,
+    'passed_files': 0,
+    'skipped_files': 0,
+    'cer_values': []
+}
+
+source_files = []
+
+for result_file in result_files:
+    print(f"处理: {result_file}")
+    try:
+        with open(result_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        source_files.append(result_file)
+        
+        # 合并filter_results
+        filter_results = data.get('filter_results', [])
+        all_filter_results.extend(filter_results)
+        
+        # 合并统计信息
+        stats = data.get('statistics', {})
+        for key in ['total_files', 'processed_files', 'failed_files', 
+                    'filtered_files', 'passed_files', 'skipped_files']:
+            merged_stats[key] += stats.get(key, 0)
+        
+        cer_values = stats.get('cer_values', [])
+        merged_stats['cer_values'].extend(cer_values)
+        
+    except Exception as e:
+        print(f"[WARN] 读取失败: {result_file} -> {e}", file=sys.stderr)
+
+# 计算CER统计
+if merged_stats['cer_values']:
+    try:
+        import numpy as np
+        merged_stats['cer_stats'] = {
+            'mean': float(np.mean(merged_stats['cer_values'])),
+            'median': float(np.median(merged_stats['cer_values'])),
+            'std': float(np.std(merged_stats['cer_values'])),
+            'min': float(np.min(merged_stats['cer_values'])),
+            'max': float(np.max(merged_stats['cer_values']))
+        }
+    except ImportError:
+        # 如果没有numpy，使用标准库计算
+        cer_vals = sorted(merged_stats['cer_values'])
+        n = len(cer_vals)
+        merged_stats['cer_stats'] = {
+            'mean': sum(cer_vals) / n,
+            'median': cer_vals[n // 2] if n % 2 == 1 else (cer_vals[n // 2 - 1] + cer_vals[n // 2]) / 2,
+            'std': (sum((x - sum(cer_vals) / n) ** 2 for x in cer_vals) / n) ** 0.5,
+            'min': min(cer_vals),
+            'max': max(cer_vals)
+        }
+
+# 构建合并后的结果
+from datetime import datetime
+merged_data = {
+    'source_files': source_files,
+    'timestamp': datetime.now().isoformat(),
+    'statistics': merged_stats,
+    'filter_results': all_filter_results
+}
+
+# 如果有base_dir和json_path信息，也保存（使用第一个文件的）
+first_data = None
+for result_file in result_files:
+    try:
+        with open(result_file, 'r', encoding='utf-8') as f:
+            first_data = json.load(f)
+            break
+    except:
+        continue
+
+if first_data:
+    if 'base_dir' in first_data:
+        merged_data['base_dir'] = first_data['base_dir']
+    if 'json_path' in first_data:
+        merged_data['json_path'] = first_data['json_path']
+
+with open(out_path, 'w', encoding='utf-8') as f:
+    json.dump(merged_data, f, ensure_ascii=False, indent=2)
+
+print(f"\n[OK] 合并完成，共 {len(all_filter_results)} 个结果，输出: {out_path}")
+print(f"统计信息:")
+print(f"  总文件数: {merged_stats['total_files']}")
+print(f"  处理成功: {merged_stats['processed_files']}")
+print(f"  处理失败: {merged_stats['failed_files']}")
+print(f"  通过筛选: {merged_stats['passed_files']}")
+print(f"  被筛选: {merged_stats['filtered_files']}")
+if 'cer_stats' in merged_stats:
+    print(f"  CER平均值: {merged_stats['cer_stats']['mean']:.4f}")
+PY
+        
+        if [ -f "$MERGED_OUTPUT_JSON" ]; then
+            echo -e "${GREEN}✓ 结果文件合并完成${NC}"
+            echo -e "${CYAN}合并结果文件: $MERGED_OUTPUT_JSON${NC}"
+        else
+            echo -e "${RED}✗ 结果文件合并失败${NC}"
+        fi
+    else
+        echo -e "${YELLOW}没有成功的结果文件需要合并${NC}"
     fi
 fi
 

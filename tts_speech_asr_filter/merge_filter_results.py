@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed, wait, FIRST_COMPLETED
 from functools import partial
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -247,43 +247,81 @@ def copy_filtered_audio(results: List[Dict], output_dir: str,
     
     logger.info("开始提交复制任务...")
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        futures = {executor.submit(copy_func, item): item for item in to_copy}
-        logger.info(f"已提交 {len(futures)} 个复制任务，开始处理...")
+        # 分批提交任务，避免一次性提交太多导致卡住
+        # 维护一个活跃任务队列，最多保持 num_workers * 2 个任务在队列中
+        max_pending = num_workers * 2
+        pending_futures = {}  # future -> item 映射
+        item_iter = iter(to_copy)
+        total_submitted = 0
         
-        for future in as_completed(futures):
+        # 先提交第一批任务
+        for _ in range(min(max_pending, len(to_copy))):
             try:
-                success, error_msg = future.result()
-            except Exception as e:
-                success = False
-                error_msg = f"任务执行异常: {type(e).__name__}: {e}"
-                logger.warning(f"复制任务异常: {error_msg}")
+                item = next(item_iter)
+                future = executor.submit(copy_func, item)
+                pending_futures[future] = item
+                total_submitted += 1
+            except StopIteration:
+                break
+        
+        logger.info(f"已提交 {total_submitted}/{len(to_copy)} 个复制任务，开始处理...")
+        
+        # 处理完成的任务，并持续提交新任务
+        while pending_futures or total_submitted < len(to_copy):
+            # 如果有待提交的任务且队列未满，继续提交
+            while len(pending_futures) < max_pending and total_submitted < len(to_copy):
+                try:
+                    item = next(item_iter)
+                    future = executor.submit(copy_func, item)
+                    pending_futures[future] = item
+                    total_submitted += 1
+                except StopIteration:
+                    break
             
-            if success:
-                copied_count += 1
-                current_time = time.time()
+            # 如果没有待处理的任务，退出
+            if not pending_futures:
+                break
+            
+            # 等待至少一个任务完成
+            done, not_done = wait(pending_futures.keys(), return_when=FIRST_COMPLETED)
+            
+            # 处理所有完成的任务
+            for future in done:
+                item = pending_futures.pop(future)
                 
-                # 定期输出进度
-                if copied_count % progress_interval == 0 or copied_count == len(to_copy):
-                    elapsed = current_time - start_time
-                    rate = copied_count / elapsed if elapsed > 0 else 0
-                    remaining = (len(to_copy) - copied_count) / rate if rate > 0 else 0
-                    logger.info(f"复制进度: {copied_count}/{len(to_copy)} ({copied_count/len(to_copy)*100:.1f}%) | "
-                              f"速度: {rate:.1f} 文件/秒 | 预计剩余: {remaining/60:.1f} 分钟")
-                    last_progress_time = current_time
-                # 心跳：如果超过30秒没有进度输出，输出心跳信息
-                elif current_time - last_progress_time >= heartbeat_interval:
-                    elapsed = current_time - start_time
-                    rate = copied_count / elapsed if elapsed > 0 else 0
-                    logger.info(f"[心跳] 已复制: {copied_count}/{len(to_copy)} | 速度: {rate:.1f} 文件/秒 | 运行时间: {elapsed/60:.1f} 分钟")
-                    last_progress_time = current_time
-            else:
-                failed_count += 1
-                # 只收集前10个错误详情用于调试
-                if len(failed_errors) < 10 and error_msg:
-                    failed_errors.append(error_msg)
-                # 每1000个失败输出一次警告
-                if failed_count % 1000 == 0:
-                    logger.warning(f"已失败: {failed_count} 个文件")
+                try:
+                    success, error_msg = future.result()
+                except Exception as e:
+                    success = False
+                    error_msg = f"任务执行异常: {type(e).__name__}: {e}"
+                    logger.warning(f"复制任务异常: {error_msg}")
+                
+                if success:
+                    copied_count += 1
+                    current_time = time.time()
+                    
+                    # 定期输出进度
+                    if copied_count % progress_interval == 0 or copied_count == len(to_copy):
+                        elapsed = current_time - start_time
+                        rate = copied_count / elapsed if elapsed > 0 else 0
+                        remaining = (len(to_copy) - copied_count) / rate if rate > 0 else 0
+                        logger.info(f"复制进度: {copied_count}/{len(to_copy)} ({copied_count/len(to_copy)*100:.1f}%) | "
+                                  f"速度: {rate:.1f} 文件/秒 | 预计剩余: {remaining/60:.1f} 分钟")
+                        last_progress_time = current_time
+                    # 心跳：如果超过30秒没有进度输出，输出心跳信息
+                    elif current_time - last_progress_time >= heartbeat_interval:
+                        elapsed = current_time - start_time
+                        rate = copied_count / elapsed if elapsed > 0 else 0
+                        logger.info(f"[心跳] 已复制: {copied_count}/{len(to_copy)} | 速度: {rate:.1f} 文件/秒 | 运行时间: {elapsed/60:.1f} 分钟")
+                        last_progress_time = current_time
+                else:
+                    failed_count += 1
+                    # 只收集前10个错误详情用于调试
+                    if len(failed_errors) < 10 and error_msg:
+                        failed_errors.append(error_msg)
+                    # 每1000个失败输出一次警告
+                    if failed_count % 1000 == 0:
+                        logger.warning(f"已失败: {failed_count} 个文件")
     
     total_time = time.time() - start_time
     logger.info(f"复制任务完成，总耗时: {total_time/60:.1f} 分钟")

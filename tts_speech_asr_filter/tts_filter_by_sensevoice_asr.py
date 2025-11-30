@@ -536,28 +536,46 @@ def load_existing_results(output_path: str) -> Tuple[Dict[str, Dict], Dict, Set[
         logger.error(f"加载已有结果文件失败: {e}")
         return {}, {}, set()
 
-def build_sample_task_list(base_dir: str, json_data: Dict[str, List[Tuple[str, str]]]) -> List[Tuple[str, str, str, str]]:
+def build_sample_task_list(base_dir: str, json_data: Dict[str, List[Tuple[str, str]]], 
+                          additional_base_dirs: List[str] = None) -> List[Tuple[str, str, str, str]]:
     """将JSON展开为样本级任务列表
+    
+    参数:
+        base_dir: 主要的基础目录
+        json_data: JSON数据
+        additional_base_dirs: 额外的base_dir列表，用于在多个目录中搜索音频文件
     
     返回的每个任务为 (audio_path, voiceprint_id, groundtruth_text, prompt_id)
     """
-    zero_shot_dir = os.path.join(base_dir, "zero_shot")
-    
-    if not os.path.exists(zero_shot_dir):
-        logger.error(f"zero_shot目录不存在: {zero_shot_dir}")
-        return []
+    # 收集所有要搜索的base_dir
+    base_dirs_to_search = [base_dir]
+    if additional_base_dirs:
+        base_dirs_to_search.extend(additional_base_dirs)
     
     sample_tasks: List[Tuple[str, str, str, str]] = []
     
     for prompt_id, voiceprint_texts in json_data.items():
-        prompt_dir = os.path.join(zero_shot_dir, prompt_id)
-        if not (os.path.exists(prompt_dir) and os.path.isdir(prompt_dir)):
-            logger.warning(f"Prompt目录不存在: {prompt_dir}")
-            continue
-        
         for voiceprint_id, text in voiceprint_texts:
             audio_filename = f"{voiceprint_id}.wav"
-            audio_path = os.path.join(prompt_dir, audio_filename)
+            audio_path = None
+            
+            # 在所有base_dir中搜索音频文件
+            for bd in base_dirs_to_search:
+                zero_shot_dir = os.path.join(bd, "zero_shot")
+                if not os.path.exists(zero_shot_dir):
+                    continue
+                
+                prompt_dir = os.path.join(zero_shot_dir, prompt_id)
+                if os.path.exists(prompt_dir) and os.path.isdir(prompt_dir):
+                    candidate_path = os.path.join(prompt_dir, audio_filename)
+                    if os.path.exists(candidate_path):
+                        audio_path = candidate_path
+                        break
+            
+            if audio_path is None:
+                logger.warning(f"未找到音频文件: prompt_id={prompt_id}, voiceprint_id={voiceprint_id}")
+                continue
+            
             sample_tasks.append((audio_path, voiceprint_id, text, prompt_id))
     
     return sample_tasks
@@ -737,6 +755,8 @@ def main():
     parser = argparse.ArgumentParser(description="基于SenseVoice Small ASR和NeMo文本标准化的TTS音频筛选")
     parser.add_argument("base_dir", type=str, help="音频文件基础目录")
     parser.add_argument("json_file", type=str, help="包含groundtruth的JSON文件")
+    parser.add_argument("--additional_base_dirs", type=str, nargs="+", 
+                       help="额外的base_dir列表，用于在多个目录中搜索音频文件（合并模式使用）")
     parser.add_argument("--output", type=str, help="输出结果文件路径")
     parser.add_argument("--cer_threshold", type=float, default=0.05, 
                        help="CER阈值，超过此值的音频将被筛选掉 (默认: 0.05)")
@@ -860,7 +880,8 @@ def main():
         json_data = load_json_data(args.json_file)
         
         # 按样本级准备处理数据
-        all_sample_tasks = build_sample_task_list(args.base_dir, json_data)
+        additional_base_dirs = getattr(args, 'additional_base_dirs', None)
+        all_sample_tasks = build_sample_task_list(args.base_dir, json_data, additional_base_dirs)
         
         if not all_sample_tasks:
             logger.error("没有找到可处理的样本任务")

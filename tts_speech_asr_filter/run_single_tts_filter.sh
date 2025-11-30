@@ -71,11 +71,20 @@ shift 2
 
 # 解析可选参数
 OUTPUT_FILE=""
+ADDITIONAL_BASE_DIRS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --output)
             OUTPUT_FILE="$2"
             shift 2
+            ;;
+        --additional_base_dirs)
+            # 收集所有额外的base_dir，直到遇到下一个选项或结束
+            shift
+            while [[ $# -gt 0 ]] && [[ ! "$1" =~ ^-- ]]; do
+                ADDITIONAL_BASE_DIRS+=("$1")
+                shift
+            done
             ;;
         --cer_threshold)
             CER_THRESHOLD="$2"
@@ -255,6 +264,13 @@ if [ "$USE_SENSEVOICE" = true ]; then
     PYTHON_CMD="$PYTHON_CMD --num_gpus $NUM_GPUS"
     PYTHON_CMD="$PYTHON_CMD --sensevoice_model_dir \"$SENSEVOICE_MODEL_DIR\""
     PYTHON_CMD="$PYTHON_CMD --language $LANGUAGE"
+    # 添加额外的base_dir参数（如果存在）
+    if [ ${#ADDITIONAL_BASE_DIRS[@]} -gt 0 ]; then
+        PYTHON_CMD="$PYTHON_CMD --additional_base_dirs"
+        for bd in "${ADDITIONAL_BASE_DIRS[@]}"; do
+            PYTHON_CMD="$PYTHON_CMD \"$bd\""
+        done
+    fi
 elif [ "$USE_WHISPER" = true ]; then
     PYTHON_CMD="python3 tts_filter_by_whisper_asr.py"
     PYTHON_CMD="$PYTHON_CMD \"$BASE_DIR\" \"$JSON_FILE\""

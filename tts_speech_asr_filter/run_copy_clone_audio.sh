@@ -15,10 +15,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # 默认配置
 SOURCE_DIRS_DEFAULT=(
-  "/root/group-shared/voiceprint/share/voiceclone_child_20250804/filtered_speech"
-  "/root/group-shared/voiceprint/share/voiceclone_child_20251022/filtered_speech"
+  "/root/group-shared/voiceprint/share/voiceclone_child_20250804/filtered_speech_sensevoice_cer0.25_sim0.7_20251127"
+  "/root/group-shared/voiceprint/share/voiceclone_child_20251022/filtered_speech_sensevoice_cer0.25_sim0.7_20251130"
 )
-OUTPUT_BASE_DIR_DEFAULT="/root/group-shared/voiceprint/data/speech/speaker_diarization/merged_datasets_20250610_vad_segments_mtfaa_enhanced_extend_kid_withclone/audio"
+OUTPUT_BASE_DIR_DEFAULT="/root/group-shared/voiceprint/data/speech/speaker_diarization/merged_datasets_20250610_vad_segments_mtfaa_enhanced_extend_kid_withclone_addlibrilight_1130/audio"
 NUM_WORKERS_DEFAULT="32"
 PRINT_INTERVAL_DEFAULT="100"
 

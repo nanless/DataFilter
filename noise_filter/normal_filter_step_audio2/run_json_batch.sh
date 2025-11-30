@@ -34,7 +34,7 @@ echo -e "${GREEN}✓ 当前目录: $(pwd)${NC}"
 # 4. 显示配置信息
 echo -e "${YELLOW}[4/4] 检查配置...${NC}"
 INPUT_JSON="/root/data/lists/noise/merged_dataset_20251127/merged_noise.json"
-OUTPUT_JSON="/root/data/lists/noise/merged_dataset_20251127/merged_noise_nohuman.json"
+OUTPUT_JSON="/root/data/lists/noise/merged_dataset_20251127/merged_noise_nohuman_stepaudio2.json"
 MODEL_PATH="/root/code/github_repos/Step-Audio2/Step-Audio-2-mini"
 
 echo "  - 输入文件: $INPUT_JSON"

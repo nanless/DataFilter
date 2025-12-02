@@ -8,17 +8,17 @@
 # ============================================
 
 # 原始音频文件夹（必需修改）
-ORIGINAL_FOLDER="/root/group-shared/voiceprint/data/noise/chime4noise/segments_10s"
+ORIGINAL_FOLDER="/root/group-shared/voiceprint/data/multimodal/audio-visual/AudioSet/agkphysics___audio_set/balanced/0.0.0/wavs"
 
 # 目标文件夹（存放无人声的音频）（必需修改）
-TARGET_FOLDER="/root/code/github_repos/DataFilter/noise_filter/normal_filter_step_audio2/test_output"
+TARGET_FOLDER="/root/group-shared/voiceprint/data/multimodal/audio-visual/AudioSet/agkphysics___audio_set/balanced/0.0.0/wavs_nohuman"
 
 # 模型配置（使用本地已下载的模型）
 MODEL_PATH="/root/code/github_repos/Step-Audio2/Step-Audio-2-mini"  # 本地模型路径
 
 # 并行处理配置
-NUM_PROCESSES=1  # 进程数（根据 GPU 数量调整）
-DEVICES="cuda:0"  # 使用的 GPU 设备，多个设备用逗号分隔，如 "cuda:0,cuda:1"
+NUM_PROCESSES=4  # 进程数（根据 GPU 数量调整）
+DEVICES="cuda:0,cuda:1,cuda:2,cuda:3"  # 使用的 GPU 设备，多个设备用逗号分隔，如 "cuda:0,cuda:1"
 
 # ============================================
 # 检查参数

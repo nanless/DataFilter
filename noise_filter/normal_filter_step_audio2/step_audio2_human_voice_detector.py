@@ -11,6 +11,7 @@ import sys
 import shutil
 import argparse
 from tqdm import tqdm
+import multiprocessing
 from multiprocessing import Process, Queue, current_process
 
 # 添加 Step-Audio2 到 Python 路径
@@ -37,22 +38,42 @@ def walk_audio_files(folder, queue):
     return len(files)
 
 
-def process_files(queue, model_path, device, original_folder, target_folder, total_files):
+def process_files(queue, model_path, device, original_folder, target_folder):
     """处理音频文件的主函数"""
+    # 在spawn模式下，需要重新导入sys和设置路径
+    import sys
+    import os
+    
     process_id = current_process().pid
-    print(f"进程 {process_id} 启动，使用设备 {device}")
+    print(f"进程 {process_id} 启动，使用设备 {device}", flush=True)
+    
+    # 在spawn模式下，需要重新设置Python路径和导入模块
+    step_audio2_dir = '/root/code/github_repos/Step-Audio2'
+    if step_audio2_dir not in sys.path:
+        sys.path.insert(0, step_audio2_dir)
+    
+    # 在spawn模式下，需要重新导入torch并设置设备
+    import torch
+    if device.startswith('cuda:'):
+        device_id = int(device.split(':')[1])
+        if torch.cuda.is_available():
+            torch.cuda.set_device(device_id)
+            print(f"进程 {process_id}: 已设置使用 GPU {device_id}: {torch.cuda.get_device_name(device_id)}", flush=True)
+    
+    # 在spawn模式下，需要重新导入StepAudio2
+    from stepaudio2 import StepAudio2
     
     try:
         # 加载 StepAudio2 模型
-        print(f"进程 {process_id}: 加载 Step-Audio-2 模型...")
-        print(f"进程 {process_id}: 正在加载模型（这可能需要几分钟，请耐心等待）...")
+        print(f"进程 {process_id}: 加载 Step-Audio-2 模型...", flush=True)
+        print(f"进程 {process_id}: 正在加载模型（这可能需要几分钟，请耐心等待）...", flush=True)
         
         model = StepAudio2(model_path)
         
-        print(f"进程 {process_id}: 模型加载完成")
+        print(f"进程 {process_id}: 模型加载完成", flush=True)
         
     except Exception as e:
-        print(f"进程 {process_id}: 加载模型失败: {e}")
+        print(f"进程 {process_id}: 加载模型失败: {e}", flush=True)
         import traceback
         traceback.print_exc()
         return
@@ -63,7 +84,18 @@ def process_files(queue, model_path, device, original_folder, target_folder, tot
     no_voice_count = 0
     error_count = 0
     
-    with tqdm(total=total_files, desc=f"进程 {process_id}", unit="文件") as pbar:
+    # 使用 position 参数让每个进程的进度条显示在不同行，避免混乱
+    # 从 device 中提取 worker_id（用于 position）
+    worker_id = 0
+    device_label = device
+    if device.startswith('cuda:'):
+        worker_id = int(device.split(':')[1])
+        device_label = f"GPU{worker_id}"
+    else:
+        device_label = "CPU"
+    
+    # 不设置 total，让进度条只显示已处理数量
+    with tqdm(desc=device_label, unit="文件", position=worker_id, leave=True) as pbar:
         while True:
             audio_file = queue.get()
             if audio_file is None:
@@ -91,8 +123,9 @@ def process_files(queue, model_path, device, original_folder, target_folder, tot
                 response = text.strip().lower()
                 response = response.replace(".", "").replace(",", "").replace("!", "").replace("?", "").strip()
                 
-                print(f"\n音频文件: {audio_file}")
-                print(f"人声判断: {response}")
+                # 减少详细输出，只在每100个文件输出一次统计
+                if processed_count % 100 == 0 and processed_count > 0:
+                    print(f"\n[{device_label}] 已处理: {processed_count}, 有人声: {has_voice_count}, 无人声: {no_voice_count}", flush=True)
                 
                 # 判断结果并复制文件
                 if "no" in response and "yes" not in response:
@@ -102,16 +135,14 @@ def process_files(queue, model_path, device, original_folder, target_folder, tot
                     dest_file = os.path.join(dest_folder, os.path.basename(audio_file))
                     shutil.copy(audio_file, dest_file)
                     no_voice_count += 1
-                    print(f"✓ 无人声，已复制到: {dest_folder}")
                 else:
                     has_voice_count += 1
-                    print(f"✗ 检测到人声，跳过")
                 
                 processed_count += 1
                 
             except Exception as e:
                 error_count += 1
-                print(f"\n处理文件出错 {audio_file}: {e}")
+                print(f"\n[{device_label}] 处理文件出错 {audio_file}: {e}", flush=True)
                 import traceback
                 traceback.print_exc()
             
@@ -119,11 +150,11 @@ def process_files(queue, model_path, device, original_folder, target_folder, tot
                 pbar.update(1)
     
     # 打印统计信息
-    print(f"\n进程 {process_id} 处理完成:")
-    print(f"  总处理: {processed_count} 个文件")
-    print(f"  有人声: {has_voice_count} 个")
-    print(f"  无人声: {no_voice_count} 个")
-    print(f"  出错: {error_count} 个")
+    print(f"\n[{device_label}] 处理完成:", flush=True)
+    print(f"  总处理: {processed_count} 个文件", flush=True)
+    print(f"  有人声: {has_voice_count} 个", flush=True)
+    print(f"  无人声: {no_voice_count} 个", flush=True)
+    print(f"  出错: {error_count} 个", flush=True)
 
 
 def main():
@@ -181,8 +212,15 @@ def main():
     devices = args.devices.split(",")
     print(f"将使用以下设备: {devices}")
     
+    # 使用 spawn 方法创建多进程上下文（CUDA 需要）
+    # 如果使用多进程，必须使用 spawn 方法
+    if args.num_processes > 1 and torch.cuda.is_available():
+        mp_context = multiprocessing.get_context('spawn')
+    else:
+        mp_context = multiprocessing.get_context()
+    
     # 创建队列
-    queue = Queue()
+    queue = mp_context.Queue()
     
     # 统计文件总数
     print("统计音频文件...")
@@ -197,19 +235,18 @@ def main():
     if args.num_processes > 1 and torch.cuda.is_available():
         print(f"使用 {args.num_processes} 个进程并行处理")
         
-        # 启动多个工作进程
+        # 启动多个工作进程（使用 spawn 上下文）
         worker_processes = []
         for i in range(args.num_processes):
             device = devices[i % len(devices)]
-            p = Process(
+            p = mp_context.Process(
                 target=process_files,
                 args=(
                     queue, 
                     args.model_path,
                     device, 
                     args.original_folder, 
-                    args.target_folder,
-                    total_files
+                    args.target_folder
                 )
             )
             p.start()
@@ -227,8 +264,7 @@ def main():
             args.model_path,
             devices[0],
             args.original_folder,
-            args.target_folder,
-            total_files
+            args.target_folder
         )
     
     print("\n所有文件处理完成！")

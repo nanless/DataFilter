@@ -311,6 +311,15 @@ class TextNormalizer:
         
         return text.strip()
 
+def is_single_letter_sequence(text: str) -> bool:
+    """判断文本是否为仅由单个英文字母组成的序列（允许空格分隔）"""
+    if not text:
+        return False
+    tokens = [t for t in text.split(" ") if t]
+    if not tokens:
+        return False
+    return all(len(t) == 1 and t.isalpha() for t in tokens)
+
 class TTSFilterProcessor:
     """TTS音频筛选处理器"""
     
@@ -365,6 +374,8 @@ class TTSFilterProcessor:
             'transcription': '',
             'normalized_groundtruth': '',
             'normalized_transcription': '',
+            'groundtruth_no_space': '',
+            'transcription_no_space': '',
             'cer': 1.0,
             'passed': False,
             'success': False,
@@ -409,9 +420,21 @@ class TTSFilterProcessor:
             logger.info(f"  标准化后Groundtruth: {normalized_groundtruth}")
             logger.info(f"  标准化后ASR识别结果: {normalized_transcription}")
             
+            # CER计算使用的文本（默认包含空格）
+            cer_groundtruth = normalized_groundtruth
+            cer_transcription = normalized_transcription
+
+            # 如果groundtruth是“单个英文字母序列”，则计算CER前去掉双方空格
+            if is_single_letter_sequence(normalized_groundtruth):
+                cer_groundtruth = normalized_groundtruth.replace(" ", "")
+                cer_transcription = normalized_transcription.replace(" ", "")
+                result['groundtruth_no_space'] = cer_groundtruth
+                result['transcription_no_space'] = cer_transcription
+                logger.info("Groundtruth为单个英文字母序列，CER计算前移除空格")
+
             # 计算CER
-            if normalized_groundtruth and normalized_transcription:
-                cer_score = cer(normalized_groundtruth, normalized_transcription)
+            if cer_groundtruth and cer_transcription:
+                cer_score = cer(cer_groundtruth, cer_transcription)
                 result['cer'] = cer_score
                 result['passed'] = cer_score <= self.cer_threshold
                 result['success'] = True
